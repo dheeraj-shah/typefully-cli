@@ -1,0 +1,187 @@
+"""Output formatting: JSON envelope (default) and Rich human-readable (--text)."""
+
+from __future__ import annotations
+
+from rich.console import Console as RichConsole
+from rich.table import Table
+
+
+_console = RichConsole()
+
+
+def print_user(data: dict) -> None:
+    _console.print(f"  Name:  {data.get('name', '?')}")
+    _console.print(f"  Email: {data.get('email', '?')}")
+    _console.print(f"  Key:   {data.get('api_key_label', '?')}")
+
+
+def print_accounts(results: list[dict]) -> None:
+    table = Table(title="Social Sets")
+    table.add_column("Username")
+    table.add_column("ID", style="dim")
+    table.add_column("Name")
+    table.add_column("Platforms")
+    for s in results:
+        platforms = ", ".join(s.get("platforms", {}).keys()) if isinstance(s.get("platforms"), dict) else ""
+        table.add_row(
+            s.get("username", "?"),
+            str(s.get("id", "?")),
+            s.get("name", ""),
+            platforms,
+        )
+    _console.print(table)
+
+
+def print_account_detail(data: dict) -> None:
+    _console.print(f"  Name: {data.get('name', '?')}")
+    _console.print(f"  ID:   {data.get('id', '?')}")
+    team = data.get("team")
+    if team:
+        _console.print(f"  Team: {team.get('name', '?')} (ID: {team.get('id', '?')})")
+    platforms = data.get("platforms", {})
+    if platforms:
+        _console.print("\n  Connected platforms:")
+        for name, info in platforms.items():
+            if not info or not isinstance(info, dict):
+                continue
+            username = info.get("username", "?")
+            profile = info.get("profile_url", "")
+            _console.print(f"    [{name.upper()}] @{username}")
+            if profile:
+                _console.print(f"      {profile}")
+
+
+def print_draft(data: dict) -> None:
+    _console.print(f"  ID:     {data.get('id', '?')}")
+    _console.print(f"  Status: {data.get('status', '?')}")
+    for key in ("created_at", "updated_at", "draft_title", "scheduled_date", "published_at"):
+        val = data.get(key, "")
+        if val:
+            label = key.replace("_", " ").title()
+            _console.print(f"  {label}: {str(val)[:19]}")
+    tags = data.get("tags", [])
+    if tags:
+        tag_str = ", ".join(
+            t.get("name", t.get("slug", "?")) if isinstance(t, dict) else str(t)
+            for t in tags
+        )
+        _console.print(f"  Tags: {tag_str}")
+    for url_key in ("share_url", "private_url", "x_published_url", "linkedin_published_url"):
+        val = data.get(url_key, "")
+        if val:
+            label = url_key.replace("_", " ").title()
+            _console.print(f"  {label}: {val}")
+    scratchpad = data.get("scratchpad_text", "")
+    if scratchpad:
+        _console.print(f"  Scratchpad: {scratchpad}")
+    # Posts per platform
+    for platform, pdata in data.get("platforms", {}).items():
+        if not isinstance(pdata, dict) or not pdata.get("enabled"):
+            continue
+        posts = pdata.get("posts", [])
+        _console.print(f"\n  [{platform.upper()}] ({len(posts)} post{'s' if len(posts) != 1 else ''})")
+        for i, p in enumerate(posts):
+            if i > 0:
+                _console.print("    ---")
+            _console.print(f"    {p.get('text', '(no text)')}")
+
+
+def print_draft_short(data: dict) -> None:
+    _console.print(f"  ID:     {data.get('id', '?')}")
+    _console.print(f"  Status: {data.get('status', '?')}")
+    share_url = data.get("share_url", "")
+    if share_url:
+        _console.print(f"  Share:  {share_url}")
+    private_url = data.get("private_url", "")
+    if private_url:
+        _console.print(f"  Edit:   {private_url}")
+
+
+def print_drafts_list(data: dict) -> None:
+    count = data.get("count", "?")
+    results = data.get("results", [])
+    if not results:
+        _console.print("  (none)")
+        return
+    _console.print(f"  Showing {len(results)} of {count} total\n")
+    for d in results:
+        status = d.get("status", "?")
+        # Get text from platforms or preview
+        text = ""
+        platforms = d.get("platforms", {})
+        if isinstance(platforms, dict) and "x" in platforms:
+            posts = platforms.get("x", {}).get("posts", [])
+            if posts:
+                text = posts[0].get("text", "")
+        if not text:
+            text = d.get("preview", "(no text)")
+        preview = text[:80] + "..." if len(text) > 80 else text
+        draft_id = d.get("id", "?")
+        tags = d.get("tags", [])
+        tag_str = ""
+        if tags:
+            tag_str = " " + " ".join(
+                f"#{t['name'] if isinstance(t, dict) else t}" for t in tags
+            )
+        _console.print(f"  [{status}] {preview} (ID: {draft_id}){tag_str}")
+
+
+def print_recent(posts: list[dict]) -> None:
+    if not posts:
+        _console.print("  (none)")
+        return
+    for d in posts:
+        pub = d.get("published_at", "?")[:10]
+        draft_id = d.get("id", "?")
+        text = ""
+        platforms = d.get("platforms", {})
+        if isinstance(platforms, dict) and "x" in platforms:
+            pp = platforms.get("x", {}).get("posts", [])
+            if pp:
+                text = "\n  ---\n".join(p.get("text", "") for p in pp)
+        if not text:
+            text = d.get("preview", "(no text)")
+        x_url = d.get("x_published_url", "")
+        _console.print(f"--- [{pub}] (ID: {draft_id}) ---")
+        _console.print(f"  {text}")
+        if x_url:
+            _console.print(f"  -> {x_url}")
+        _console.print()
+
+
+def print_tags(results: list[dict]) -> None:
+    if not results:
+        _console.print("  (none)")
+        return
+    for t in results:
+        _console.print(f"  {t.get('name', '?')} (slug: {t.get('slug', '?')})")
+
+
+def print_batch_dry_run(entries: list[dict]) -> None:
+    for i, e in enumerate(entries):
+        n = len(e.get("posts", []))
+        label = "thread" if n > 1 else "single"
+        preview = e["posts"][0][:60] if e.get("posts") else "(empty)"
+        sched = e.get("schedule") or "(no schedule)"
+        tags = ", ".join(e.get("tags", [])) or "(no tags)"
+        _console.print(f"  [{i+1}] {label} ({n} post{'s' if n > 1 else ''}) | {sched} | {tags}")
+        _console.print(f"      {preview}")
+        _console.print()
+
+
+def print_batch_result(result: dict) -> None:
+    total = result.get("total", 0)
+    created = result.get("created", [])
+    errors = result.get("errors", [])
+    _console.print(f"\n  Done: {len(created)} created, {len(errors)} errors (of {total} total)")
+
+
+def print_delete_result(result: dict) -> None:
+    deleted = result.get("deleted", [])
+    errors = result.get("errors", [])
+    _console.print(f"  Deleted: {len(deleted)}, Errors: {len(errors)}")
+
+
+def print_upload_result(data: dict) -> None:
+    _console.print(f"  Media ID: {data.get('media_id', '?')}")
+    _console.print(f"  Status:   {data.get('status', '?')}")
