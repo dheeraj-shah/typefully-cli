@@ -160,10 +160,15 @@ class TypefullyClient:
         if not tag_names:
             return []
         warnings: list[str] = []
-        existing = self.list_tags(social_set_id, limit=50)
-        existing_names = {
-            t.get("name", "").lower() for t in existing.get("results", [])
-        }
+        existing_names: set[str] = set()
+        offset = 0
+        while True:
+            page = self.list_tags(social_set_id, limit=50, offset=offset)
+            results = page.get("results", [])
+            existing_names.update(t.get("name", "").lower() for t in results)
+            if len(results) < 50:
+                break
+            offset += 50
         for name in tag_names:
             if name.lower() not in existing_names:
                 try:
@@ -242,7 +247,10 @@ class TypefullyClient:
             if not page:
                 break
             for d in page:
-                pub = d.get("published_at", "")[:10]
+                raw_pub = d.get("published_at")
+                if not raw_pub:
+                    continue
+                pub = raw_pub[:10]
                 if until and pub > until:
                     continue
                 if since and pub < since:

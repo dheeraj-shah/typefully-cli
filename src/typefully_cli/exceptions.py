@@ -46,6 +46,11 @@ class APIError(TypefullyError):
         self.status_code = status_code
         super().__init__(f"API returned {status_code}: {body[:200]}", hint=hint)
 
+    @property
+    def user_message(self) -> str:
+        """Clean message without raw upstream body, safe for stdout."""
+        return f"API error (HTTP {self.status_code})"
+
     def to_dict(self) -> dict:
         d = super().to_dict()
         d["status"] = self.status_code

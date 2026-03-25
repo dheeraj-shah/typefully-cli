@@ -1,6 +1,6 @@
 # typefully-cli
 
-CLI for the [Typefully](https://typefully.com) API. Create drafts, threads, batch publish, upload media, manage tags -- from the terminal or via AI agents.
+CLI for the [Typefully](https://typefully.com) API. Create drafts, threads, batch publish, upload media, list and create tags -- from the terminal or via AI agents.
 
 **Agent-first design:** JSON output by default, structured errors, deterministic behavior. Works natively with Claude Code, automation scripts, and CI/CD.
 
@@ -111,8 +111,8 @@ Account resolution: `--account` flag > config `default_account` > error. Accepts
 | `get DRAFT_ID` | View draft details |
 | `update DRAFT_ID ["text"]` | Edit draft (text supports `===` for threads) |
 | `delete ID1 [ID2 ...]` | Delete drafts |
-| `drafts` | List drafts (with `--status`, `--tag`, `--limit`, `--offset`, `--order`) |
-| `recent` | Published posts (with `-n`, `--since`, `--until`) |
+| `drafts` | List drafts (with `--status`, `--tag`, `--limit 1-50`, `--offset`, `--order`) |
+| `recent` | Published posts (with `-n 1-50`, `--since YYYY-MM-DD`, `--until YYYY-MM-DD`) |
 
 **Draft options:** `--schedule ISO|next|now`, `--tag SLUG` (repeatable, auto-created), `--title`, `--media ID`, `--share`, `--reply-to URL`, `--scratchpad`, `--qrt URL`, `--threadify`, `--auto-retweet/--no-auto-retweet`, `--auto-plug/--no-auto-plug`, `--linkedin`, `--threads`, `--bluesky`, `--mastodon`
 
@@ -120,7 +120,7 @@ Account resolution: `--account` flag > config `default_account` > error. Accepts
 
 | Command | Description |
 |---------|-------------|
-| `tags` | List tags |
+| `tags` | List tags (`--limit 1-50`, `--offset`) |
 | `tag-create "name"` | Create a tag (usually auto-created via `--tag`) |
 
 ### Media
@@ -130,6 +130,8 @@ Account resolution: `--account` flag > config `default_account` > error. Accepts
 | `upload /path/to/file` | Upload media, returns media_id |
 
 Filenames are automatically sanitized (spaces and special characters replaced with `_`). Supported formats: jpg, jpeg, png, webp, gif, mp4, mov, pdf.
+
+> **Note:** Uploaded media cannot be deleted via the CLI. The Typefully API does not expose a media delete endpoint.
 
 ### Batch
 
@@ -178,6 +180,21 @@ api_key = "tf_..."
 
 [defaults]
 account = "MyBrand"
+```
+
+## Shell Completions
+
+Tab-completion for all commands and options:
+
+```bash
+# Bash -- add to ~/.bashrc
+eval "$(_TYPEFULLY_COMPLETE=bash_source typefully)"
+
+# Zsh -- add to ~/.zshrc
+eval "$(_TYPEFULLY_COMPLETE=zsh_source typefully)"
+
+# Fish -- add to ~/.config/fish/completions/typefully.fish
+_TYPEFULLY_COMPLETE=fish_source typefully | source
 ```
 
 ## Agent Usage
