@@ -78,6 +78,64 @@ def _output(data: Any, use_text: bool, text_fn: Any = None) -> None:
         write_success(data)
 
 
+def error_handler(f):
+    """Centralized error handler for all CLI commands.
+
+    Catches TypefullyError -> structured stderr JSON + appropriate exit code.
+    Catches unexpected Exception -> internal_error (no raw exception leak).
+    """
+
+    @wraps(f)
+    def wrapper(*args, **kwargs):
+        try:
+            return f(*args, **kwargs)
+        except SystemExit:
+            raise  # let sys.exit() through
+        except TypefullyError as e:
+            _handle_error(e, Console(kwargs.get("quiet", False)))
+        except Exception:
+            Console(kwargs.get("quiet", False)).error_json(
+                {"code": "internal_error", "message": "Unexpected internal error"}
+            )
+            sys.exit(2)
+
+    return wrapper
+
+
+def _handle_multi_result(
+    result: dict, errors: list, created: list,
+    total: int, use_text: bool, text_fn: Any, console: Console,
+) -> None:
+    """Handle the three branches for multi-item commands (delete/batch)."""
+    if not errors:
+        # All succeed
+        if use_text and text_fn:
+            text_fn(result)
+        else:
+            write_success(result)
+    elif created:
+        # Partial failure: some succeeded, some failed
+        if use_text and text_fn:
+            text_fn(result)
+        else:
+            write_success(result)
+        console.error_json({
+            "code": "partial_failure",
+            "status": 3,
+            "message": f"{len(errors)} of {total} operations failed",
+            "hint": "Check stdout data for details",
+        })
+        sys.exit(3)
+    else:
+        # All failed: nothing on stdout
+        console.error_json({
+            "code": "all_failed",
+            "status": 2,
+            "message": f"All {total} operations failed",
+        })
+        sys.exit(2)
+
+
 # --- CLI Group ---
 
 
@@ -98,26 +156,25 @@ def config():
 @config.command("set")
 @click.argument("key")
 @click.argument("value")
-def config_set_cmd(key: str, value: str):
+@error_handler
+def config_set_cmd(key: str, value: str, **kwargs):
     """Set a config value. Keys: api_key, default_account, onepassword_item."""
-    try:
-        cfg = Config.load()
-        result = config_set(cfg, key, value)
-        write_success(result)
-    except Exception as e:
-        Console().error_json({"code": "config_error", "message": str(e)})
-        sys.exit(1)
+    cfg = Config.load()
+    result = config_set(cfg, key, value)
+    write_success(result)
 
 
 @config.command("show")
-def config_show_cmd():
+@error_handler
+def config_show_cmd(**kwargs):
     """Show current configuration (secrets redacted)."""
     cfg = Config.load()
     write_success(cfg.to_dict(redact=True))
 
 
 @config.command("path")
-def config_path_cmd():
+@error_handler
+def config_path_cmd(**kwargs):
     """Print the config file path."""
     cfg = Config.load()
     write_success({"path": str(cfg._path)})
@@ -128,15 +185,13 @@ def config_path_cmd():
 
 @cli.command()
 @shared_options
+@error_handler
 def me(api_key, account, use_text, quiet):
     """Show current authenticated user."""
-    try:
-        client, console, cfg = _get_client_and_console(api_key, quiet)
-        with client:
-            data = client.me()
-            _output(data, use_text, fmt.print_user)
-    except TypefullyError as e:
-        _handle_error(e, Console(quiet))
+    client, console, cfg = _get_client_and_console(api_key, quiet)
+    with client:
+        data = client.me()
+        _output(data, use_text, fmt.print_user)
 
 
 # --- accounts ---
@@ -144,18 +199,16 @@ def me(api_key, account, use_text, quiet):
 
 @cli.command()
 @shared_options
+@error_handler
 def accounts(api_key, account, use_text, quiet):
     """List connected social sets."""
-    try:
-        client, console, cfg = _get_client_and_console(api_key, quiet)
-        with client:
-            sets = client.get_social_sets()
-            if use_text:
-                fmt.print_accounts(sets)
-            else:
-                write_success(sets)
-    except TypefullyError as e:
-        _handle_error(e, Console(quiet))
+    client, console, cfg = _get_client_and_console(api_key, quiet)
+    with client:
+        sets = client.get_social_sets()
+        if use_text:
+            fmt.print_accounts(sets)
+        else:
+            write_success(sets)
 
 
 # --- account-detail ---
@@ -164,16 +217,14 @@ def accounts(api_key, account, use_text, quiet):
 @cli.command("account-detail")
 @click.argument("name", required=False, default=None)
 @shared_options
+@error_handler
 def account_detail(name, api_key, account, use_text, quiet):
     """Show details for an account. NAME is optional (falls back to --account or config default)."""
-    try:
-        client, console, cfg = _get_client_and_console(api_key, quiet)
-        with client:
-            ssid = _resolve_account_id(client, account, cfg, positional=name)
-            data = client.get_social_set(ssid)
-            _output(data, use_text, fmt.print_account_detail)
-    except TypefullyError as e:
-        _handle_error(e, Console(quiet))
+    client, console, cfg = _get_client_and_console(api_key, quiet)
+    with client:
+        ssid = _resolve_account_id(client, account, cfg, positional=name)
+        data = client.get_social_set(ssid)
+        _output(data, use_text, fmt.print_account_detail)
 
 
 # --- recent ---
@@ -184,19 +235,17 @@ def account_detail(name, api_key, account, use_text, quiet):
 @click.option("--since", default="", help="Start date YYYY-MM-DD")
 @click.option("--until", "until_date", default="", help="End date YYYY-MM-DD")
 @shared_options
+@error_handler
 def recent(limit, since, until_date, api_key, account, use_text, quiet):
     """List recently published posts."""
-    try:
-        client, console, cfg = _get_client_and_console(api_key, quiet)
-        with client:
-            ssid = _resolve_account_id(client, account, cfg)
-            posts = client.list_recent(ssid, limit=limit, since=since, until=until_date)
-            if use_text:
-                fmt.print_recent(posts)
-            else:
-                write_success(posts)
-    except TypefullyError as e:
-        _handle_error(e, Console(quiet))
+    client, console, cfg = _get_client_and_console(api_key, quiet)
+    with client:
+        ssid = _resolve_account_id(client, account, cfg)
+        posts = client.list_recent(ssid, limit=limit, since=since, until=until_date)
+        if use_text:
+            fmt.print_recent(posts)
+        else:
+            write_success(posts)
 
 
 # --- draft ---
@@ -220,6 +269,7 @@ def recent(limit, since, until_date, api_key, account, use_text, quiet):
 @click.option("--bluesky", is_flag=True)
 @click.option("--mastodon", is_flag=True)
 @shared_options
+@error_handler
 def draft(
     text, schedule, tags, title, media, share, reply_to, scratchpad,
     qrt, threadify, auto_retweet, auto_plug,
@@ -227,33 +277,30 @@ def draft(
     api_key, account, use_text, quiet,
 ):
     """Create a draft post."""
-    try:
-        client, console, cfg = _get_client_and_console(api_key, quiet)
-        with client:
-            ssid = _resolve_account_id(client, account, cfg)
+    client, console, cfg = _get_client_and_console(api_key, quiet)
+    with client:
+        ssid = _resolve_account_id(client, account, cfg)
 
-            # QRT: append URL
-            if qrt:
-                text = f"{text}\n{qrt}"
+        # QRT: append URL
+        if qrt:
+            text = f"{text}\n{qrt}"
 
-            # Tag auto-creation
-            if tags:
-                for w in client.ensure_tags(ssid, list(tags)):
-                    console.warning(w)
+        # Tag auto-creation
+        if tags:
+            for w in client.ensure_tags(ssid, list(tags)):
+                console.warning(w)
 
-            payload = _build_draft_payload(
-                posts_text=[text], schedule=schedule, tags=list(tags),
-                title=title, media=media, share=share, reply_to=reply_to,
-                scratchpad=scratchpad, threadify=threadify,
-                auto_retweet=auto_retweet, auto_plug=auto_plug,
-                linkedin=linkedin, threads_flag=threads, bluesky=bluesky, mastodon=mastodon,
-            )
+        payload = _build_draft_payload(
+            posts_text=[text], schedule=schedule, tags=list(tags),
+            title=title, media=media, share=share, reply_to=reply_to,
+            scratchpad=scratchpad, threadify=threadify,
+            auto_retweet=auto_retweet, auto_plug=auto_plug,
+            linkedin=linkedin, threads_flag=threads, bluesky=bluesky, mastodon=mastodon,
+        )
 
-            console.status("Creating draft...")
-            data = client.create_draft(ssid, payload)
-            _output(data, use_text, fmt.print_draft_short)
-    except TypefullyError as e:
-        _handle_error(e, Console(quiet))
+        console.status("Creating draft...")
+        data = client.create_draft(ssid, payload)
+        _output(data, use_text, fmt.print_draft_short)
 
 
 # --- thread ---
@@ -276,6 +323,7 @@ def draft(
 @click.option("--bluesky", is_flag=True)
 @click.option("--mastodon", is_flag=True)
 @shared_options
+@error_handler
 def thread(
     posts, schedule, tags, title, media, share, reply_to, scratchpad,
     qrt, auto_retweet, auto_plug,
@@ -291,32 +339,29 @@ def thread(
         })
         sys.exit(1)
 
-    try:
-        client, console, cfg = _get_client_and_console(api_key, quiet)
-        with client:
-            ssid = _resolve_account_id(client, account, cfg)
+    client, console, cfg = _get_client_and_console(api_key, quiet)
+    with client:
+        ssid = _resolve_account_id(client, account, cfg)
 
-            posts_list = list(posts)
-            if qrt and posts_list:
-                posts_list[0] = f"{posts_list[0]}\n{qrt}"
+        posts_list = list(posts)
+        if qrt and posts_list:
+            posts_list[0] = f"{posts_list[0]}\n{qrt}"
 
-            if tags:
-                for w in client.ensure_tags(ssid, list(tags)):
-                    console.warning(w)
+        if tags:
+            for w in client.ensure_tags(ssid, list(tags)):
+                console.warning(w)
 
-            payload = _build_draft_payload(
-                posts_text=posts_list, schedule=schedule, tags=list(tags),
-                title=title, media=media, share=share, reply_to=reply_to,
-                scratchpad=scratchpad, threadify=False,
-                auto_retweet=auto_retweet, auto_plug=auto_plug,
-                linkedin=linkedin, threads_flag=threads, bluesky=bluesky, mastodon=mastodon,
-            )
+        payload = _build_draft_payload(
+            posts_text=posts_list, schedule=schedule, tags=list(tags),
+            title=title, media=media, share=share, reply_to=reply_to,
+            scratchpad=scratchpad, threadify=False,
+            auto_retweet=auto_retweet, auto_plug=auto_plug,
+            linkedin=linkedin, threads_flag=threads, bluesky=bluesky, mastodon=mastodon,
+        )
 
-            console.status(f"Creating {len(posts_list)}-post thread...")
-            data = client.create_draft(ssid, payload)
-            _output(data, use_text, fmt.print_draft_short)
-    except TypefullyError as e:
-        _handle_error(e, Console(quiet))
+        console.status(f"Creating {len(posts_list)}-post thread...")
+        data = client.create_draft(ssid, payload)
+        _output(data, use_text, fmt.print_draft_short)
 
 
 # --- get ---
@@ -325,16 +370,14 @@ def thread(
 @cli.command()
 @click.argument("draft_id")
 @shared_options
+@error_handler
 def get(draft_id, api_key, account, use_text, quiet):
     """View a specific draft."""
-    try:
-        client, console, cfg = _get_client_and_console(api_key, quiet)
-        with client:
-            ssid = _resolve_account_id(client, account, cfg)
-            data = client.get_draft(ssid, draft_id)
-            _output(data, use_text, fmt.print_draft)
-    except TypefullyError as e:
-        _handle_error(e, Console(quiet))
+    client, console, cfg = _get_client_and_console(api_key, quiet)
+    with client:
+        ssid = _resolve_account_id(client, account, cfg)
+        data = client.get_draft(ssid, draft_id)
+        _output(data, use_text, fmt.print_draft)
 
 
 # --- update ---
@@ -352,69 +395,65 @@ def get(draft_id, api_key, account, use_text, quiet):
 @click.option("--auto-plug/--no-auto-plug", default=None)
 @click.option("--media", default=None)
 @shared_options
+@error_handler
 def update(
     draft_id, text, schedule, tags, title, share_flag, scratchpad,
     auto_retweet, auto_plug, media,
     api_key, account, use_text, quiet,
 ):
     """Update an existing draft. Text supports === for thread post splitting."""
-    try:
-        client, console, cfg = _get_client_and_console(api_key, quiet)
-        with client:
-            ssid = _resolve_account_id(client, account, cfg)
+    client, console, cfg = _get_client_and_console(api_key, quiet)
+    with client:
+        ssid = _resolve_account_id(client, account, cfg)
 
-            if tags:
-                for w in client.ensure_tags(ssid, list(tags)):
-                    console.warning(w)
+        if tags:
+            for w in client.ensure_tags(ssid, list(tags)):
+                console.warning(w)
 
-            payload: dict[str, Any] = {}
+        payload: dict[str, Any] = {}
 
-            if text:
-                # Split on === for thread support
-                parts = [p.strip() for p in text.split("===") if p.strip()]
-                posts = [{"text": p} for p in parts]
-                if media:
-                    posts[0]["media_ids"] = [m.strip() for m in media.split(",")]
-                payload["platforms"] = {"x": {"enabled": True, "posts": posts}}
-            elif media:
-                # Media only update (no text change, add media to existing)
-                payload["platforms"] = {
-                    "x": {"enabled": True, "posts": [{"media_ids": [m.strip() for m in media.split(",")]}]}
-                }
+        if text:
+            parts = [p.strip() for p in text.split("===") if p.strip()]
+            posts = [{"text": p} for p in parts]
+            if media:
+                posts[0]["media_ids"] = [m.strip() for m in media.split(",")]
+            payload["platforms"] = {"x": {"enabled": True, "posts": posts}}
+        elif media:
+            payload["platforms"] = {
+                "x": {"enabled": True, "posts": [{"media_ids": [m.strip() for m in media.split(",")]}]}
+            }
 
-            if share_flag is True:
-                payload["share"] = True
-            elif share_flag is False:
-                payload["share"] = False
+        if share_flag is True:
+            payload["share"] = True
+        elif share_flag is False:
+            payload["share"] = False
 
-            if scratchpad is not None:
-                payload["scratchpad_text"] = scratchpad
-            if auto_retweet is True:
-                payload["auto_retweet_enabled"] = True
-            elif auto_retweet is False:
-                payload["auto_retweet_enabled"] = False
-            if auto_plug is True:
-                payload["auto_plug_enabled"] = True
-            elif auto_plug is False:
-                payload["auto_plug_enabled"] = False
+        if scratchpad is not None:
+            payload["scratchpad_text"] = scratchpad
+        if auto_retweet is True:
+            payload["auto_retweet_enabled"] = True
+        elif auto_retweet is False:
+            payload["auto_retweet_enabled"] = False
+        if auto_plug is True:
+            payload["auto_plug_enabled"] = True
+        elif auto_plug is False:
+            payload["auto_plug_enabled"] = False
 
-            if schedule == "next":
-                payload["publish_at"] = "next-free-slot"
-            elif schedule == "now":
-                payload["publish_at"] = "now"
-            elif schedule:
-                payload["publish_at"] = schedule
+        if schedule == "next":
+            payload["publish_at"] = "next-free-slot"
+        elif schedule == "now":
+            payload["publish_at"] = "now"
+        elif schedule:
+            payload["publish_at"] = schedule
 
-            if tags:
-                payload["tags"] = list(tags)
-            if title:
-                payload["draft_title"] = title
+        if tags:
+            payload["tags"] = list(tags)
+        if title:
+            payload["draft_title"] = title
 
-            console.status(f"Updating draft {draft_id}...")
-            data = client.update_draft(ssid, draft_id, payload)
-            _output(data, use_text, fmt.print_draft_short)
-    except TypefullyError as e:
-        _handle_error(e, Console(quiet))
+        console.status(f"Updating draft {draft_id}...")
+        data = client.update_draft(ssid, draft_id, payload)
+        _output(data, use_text, fmt.print_draft_short)
 
 
 # --- delete ---
@@ -423,36 +462,29 @@ def update(
 @cli.command()
 @click.argument("ids", nargs=-1, required=True)
 @shared_options
+@error_handler
 def delete(ids, api_key, account, use_text, quiet):
     """Delete one or more drafts."""
-    try:
-        client, console, cfg = _get_client_and_console(api_key, quiet)
-        with client:
-            ssid = _resolve_account_id(client, account, cfg)
-            deleted: list[str] = []
-            errors: list[dict] = []
-            for i, draft_id in enumerate(ids):
-                if i > 0:
-                    client.rate_delay()
-                console.status(f"Deleting {draft_id}...")
-                try:
-                    client.delete_draft(ssid, draft_id)
-                    deleted.append(draft_id)
-                except TypefullyError as e:
-                    errors.append({"id": draft_id, "message": str(e)})
+    client, console, cfg = _get_client_and_console(api_key, quiet)
+    with client:
+        ssid = _resolve_account_id(client, account, cfg)
+        deleted: list[str] = []
+        errors: list[dict] = []
+        for i, draft_id in enumerate(ids):
+            if i > 0:
+                client.rate_delay()
+            console.status(f"Deleting {draft_id}...")
+            try:
+                client.delete_draft(ssid, draft_id)
+                deleted.append(draft_id)
+            except TypefullyError as e:
+                errors.append({"id": draft_id, "message": str(e)})
 
-            result = {"deleted": deleted, "errors": errors}
-            if use_text:
-                fmt.print_delete_result(result)
-            else:
-                write_success(result)
-
-            if errors and not deleted:
-                sys.exit(2)
-            elif errors:
-                sys.exit(3)
-    except TypefullyError as e:
-        _handle_error(e, Console(quiet))
+        result = {"deleted": deleted, "errors": errors}
+        _handle_multi_result(
+            result, errors, deleted, len(ids),
+            use_text, fmt.print_delete_result, console,
+        )
 
 
 # --- drafts ---
@@ -466,28 +498,26 @@ def delete(ids, api_key, account, use_text, quiet):
 @click.option("--tag", default=None, help="Filter by tag slug")
 @click.option("--content-filter", default=None, help="Filter: original|repost")
 @shared_options
+@error_handler
 def drafts(draft_status, limit, offset, order, tag, content_filter, api_key, account, use_text, quiet):
     """List drafts with optional filters."""
-    try:
-        client, console, cfg = _get_client_and_console(api_key, quiet)
-        with client:
-            ssid = _resolve_account_id(client, account, cfg)
-            params: dict[str, Any] = {
-                "limit": limit,
-                "offset": offset,
-                "order_by": order,
-            }
-            if draft_status:
-                params["status"] = draft_status
-            if tag:
-                params["tag"] = tag
-            if content_filter:
-                params["content_filter"] = content_filter
+    client, console, cfg = _get_client_and_console(api_key, quiet)
+    with client:
+        ssid = _resolve_account_id(client, account, cfg)
+        params: dict[str, Any] = {
+            "limit": limit,
+            "offset": offset,
+            "order_by": order,
+        }
+        if draft_status:
+            params["status"] = draft_status
+        if tag:
+            params["tag"] = tag
+        if content_filter:
+            params["content_filter"] = content_filter
 
-            data = client.list_drafts(ssid, **params)
-            _output(data, use_text, fmt.print_drafts_list)
-    except TypefullyError as e:
-        _handle_error(e, Console(quiet))
+        data = client.list_drafts(ssid, **params)
+        _output(data, use_text, fmt.print_drafts_list)
 
 
 # --- tags ---
@@ -497,20 +527,18 @@ def drafts(draft_status, limit, offset, order, tag, content_filter, api_key, acc
 @click.option("-n", "--limit", default=50, type=int)
 @click.option("--offset", default=0, type=int)
 @shared_options
+@error_handler
 def tags(limit, offset, api_key, account, use_text, quiet):
     """List tags."""
-    try:
-        client, console, cfg = _get_client_and_console(api_key, quiet)
-        with client:
-            ssid = _resolve_account_id(client, account, cfg)
-            data = client.list_tags(ssid, limit=limit, offset=offset)
-            results = data.get("results", [])
-            if use_text:
-                fmt.print_tags(results)
-            else:
-                write_success(results)
-    except TypefullyError as e:
-        _handle_error(e, Console(quiet))
+    client, console, cfg = _get_client_and_console(api_key, quiet)
+    with client:
+        ssid = _resolve_account_id(client, account, cfg)
+        data = client.list_tags(ssid, limit=limit, offset=offset)
+        results = data.get("results", [])
+        if use_text:
+            fmt.print_tags(results)
+        else:
+            write_success(results)
 
 
 # --- tag-create ---
@@ -519,19 +547,17 @@ def tags(limit, offset, api_key, account, use_text, quiet):
 @cli.command("tag-create")
 @click.argument("name")
 @shared_options
+@error_handler
 def tag_create(name, api_key, account, use_text, quiet):
     """Create a tag."""
-    try:
-        client, console, cfg = _get_client_and_console(api_key, quiet)
-        with client:
-            ssid = _resolve_account_id(client, account, cfg)
-            data = client.create_tag(ssid, name)
-            if use_text:
-                fmt.print_tags([data])
-            else:
-                write_success(data)
-    except TypefullyError as e:
-        _handle_error(e, Console(quiet))
+    client, console, cfg = _get_client_and_console(api_key, quiet)
+    with client:
+        ssid = _resolve_account_id(client, account, cfg)
+        data = client.create_tag(ssid, name)
+        if use_text:
+            fmt.print_tags([data])
+        else:
+            write_success(data)
 
 
 # --- upload ---
@@ -540,16 +566,14 @@ def tag_create(name, api_key, account, use_text, quiet):
 @cli.command()
 @click.argument("file_path", type=click.Path(exists=True))
 @shared_options
+@error_handler
 def upload(file_path, api_key, account, use_text, quiet):
     """Upload a media file and return its media ID."""
-    try:
-        client, console, cfg = _get_client_and_console(api_key, quiet)
-        with client:
-            ssid = _resolve_account_id(client, account, cfg)
-            data = upload_media(client, ssid, file_path, console)
-            _output(data, use_text, fmt.print_upload_result)
-    except TypefullyError as e:
-        _handle_error(e, Console(quiet))
+    client, console, cfg = _get_client_and_console(api_key, quiet)
+    with client:
+        ssid = _resolve_account_id(client, account, cfg)
+        data = upload_media(client, ssid, file_path, console)
+        _output(data, use_text, fmt.print_upload_result)
 
 
 # --- batch ---
@@ -563,6 +587,7 @@ def upload(file_path, api_key, account, use_text, quiet):
 @click.option("--dry-run", is_flag=True)
 @click.option("--output", "output_file", default=None, type=click.Path(), help="JSON results log")
 @shared_options
+@error_handler
 def batch(file_path, schedule, tags, share, dry_run, output_file, api_key, account, use_text, quiet):
     """Batch create drafts from a text file.
 
@@ -580,87 +605,78 @@ def batch(file_path, schedule, tags, share, dry_run, output_file, api_key, accou
         ---
         A standalone tweet
     """
-    try:
-        with open(file_path) as f:
-            content = f.read()
+    with open(file_path) as f:
+        content = f.read()
 
-        entries = parse_batch_file(content)
-        merge_defaults(entries, default_schedule=schedule, default_tags=tags)
+    entries = parse_batch_file(content)
+    merge_defaults(entries, default_schedule=schedule, default_tags=tags)
 
-        if dry_run:
-            result = {"dry_run": True, "entries": [e.to_dict() for e in entries]}
-            if use_text:
-                fmt.print_batch_dry_run([e.to_dict() for e in entries])
-            else:
-                write_success(result)
-            return
+    if dry_run:
+        result = {"dry_run": True, "entries": [e.to_dict() for e in entries]}
+        if use_text:
+            fmt.print_batch_dry_run([e.to_dict() for e in entries])
+        else:
+            write_success(result)
+        return
 
-        client, console, cfg = _get_client_and_console(api_key, quiet)
-        with client:
-            ssid = _resolve_account_id(client, account, cfg)
+    client, console, cfg = _get_client_and_console(api_key, quiet)
+    with client:
+        ssid = _resolve_account_id(client, account, cfg)
 
-            # Tag preflight
-            all_tags = set()
-            for e in entries:
-                all_tags.update(e.tags)
-            if all_tags:
-                for w in client.ensure_tags(ssid, list(all_tags)):
-                    console.warning(w)
+        # Tag preflight
+        all_tags = set()
+        for e in entries:
+            all_tags.update(e.tags)
+        if all_tags:
+            for w in client.ensure_tags(ssid, list(all_tags)):
+                console.warning(w)
 
-            created: list[dict] = []
-            errors: list[dict] = []
+        created: list[dict] = []
+        errors: list[dict] = []
 
-            for i, entry in enumerate(entries):
-                if i > 0:
-                    client.rate_delay()
+        for i, entry in enumerate(entries):
+            if i > 0:
+                client.rate_delay()
 
-                payload = _build_draft_payload(
-                    posts_text=entry.posts,
-                    schedule=entry.schedule,
-                    tags=entry.tags,
-                    title=entry.title,
-                    media=",".join(entry.media_ids) if entry.media_ids else None,
-                    share=share,
-                    scratchpad=entry.scratchpad,
-                )
+            payload = _build_draft_payload(
+                posts_text=entry.posts,
+                schedule=entry.schedule,
+                tags=entry.tags,
+                title=entry.title,
+                media=",".join(entry.media_ids) if entry.media_ids else None,
+                share=share,
+                scratchpad=entry.scratchpad,
+            )
 
-                label = "thread" if len(entry.posts) > 1 else "single"
-                console.status(f"[{i+1}/{len(entries)}] Creating {label}...")
+            label = "thread" if len(entry.posts) > 1 else "single"
+            console.status(f"[{i+1}/{len(entries)}] Creating {label}...")
 
-                try:
-                    data = client.create_draft(ssid, payload)
-                    created.append({
-                        "id": data.get("id"),
-                        "type": label,
-                        "posts": len(entry.posts),
-                        "share_url": data.get("share_url", ""),
-                    })
-                except TypefullyError as e:
-                    errors.append({
-                        "index": i,
-                        "message": str(e),
-                        "preview": entry.posts[0][:50] if entry.posts else "",
-                    })
+            try:
+                data = client.create_draft(ssid, payload)
+                created.append({
+                    "id": data.get("id"),
+                    "type": label,
+                    "posts": len(entry.posts),
+                    "share_url": data.get("share_url", ""),
+                })
+            except TypefullyError as e:
+                errors.append({
+                    "index": i,
+                    "message": str(e),
+                    "preview": entry.posts[0][:50] if entry.posts else "",
+                })
 
-            result = {"total": len(entries), "created": created, "errors": errors}
+        result = {"total": len(entries), "created": created, "errors": errors}
 
-            if output_file:
-                with open(output_file, "w") as f:
-                    json.dump(result, f, indent=2)
-                console.status(f"Results written to {output_file}")
+        if output_file:
+            with open(output_file, "w") as f:
+                json.dump(result, f, indent=2)
+            console.status(f"Results written to {output_file}")
 
-            if use_text:
-                fmt.print_batch_result(result)
-            else:
-                write_success(result)
-
-            if errors and not created:
-                sys.exit(2)
-            elif errors:
-                sys.exit(3)
-
-    except TypefullyError as e:
-        _handle_error(e, Console(quiet))
+        _handle_multi_result(
+            result, errors, created, len(entries),
+            use_text, fmt.print_batch_result, console,
+        )
 
 
 # --- Payload builder ---

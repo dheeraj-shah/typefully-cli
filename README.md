@@ -78,6 +78,8 @@ typefully drafts --text
 
 Exit codes: `0` success, `1` auth/config error, `2` API error, `3` partial failure (batch/delete).
 
+**Partial failure (batch/delete):** When some operations succeed and some fail, stdout has the success data and stderr has a `partial_failure` error envelope. When all operations fail, nothing goes to stdout and stderr has an `all_failed` error envelope.
+
 ## Commands
 
 All account-scoped commands accept: `--api-key`, `--account`, `--text`, `--quiet`
@@ -126,6 +128,8 @@ Account resolution: `--account` flag > config `default_account` > error. Accepts
 | Command | Description |
 |---------|-------------|
 | `upload /path/to/file` | Upload media, returns media_id |
+
+Filenames are automatically sanitized (spaces and special characters replaced with `_`). Supported formats: jpg, jpeg, png, webp, gif, mp4, mov, pdf.
 
 ### Batch
 

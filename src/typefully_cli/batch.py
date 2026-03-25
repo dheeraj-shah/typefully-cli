@@ -60,24 +60,28 @@ def parse_batch_file(content: str) -> list[BatchEntry]:
         media_ids: list[str] = []
         post_lines: list[str] = []
 
+        in_header = True
         for line in lines:
             stripped = line.strip()
-            match = re.match(r"^(\w+):\s*(.+)$", stripped)
-            if match and match.group(1).lower() in METADATA_KEYS:
-                key = match.group(1).lower()
-                val = match.group(2).strip()
-                if key == "schedule":
-                    schedule = val
-                elif key == "tag":
-                    tags.append(val)
-                elif key == "title":
-                    title = val
-                elif key == "scratchpad":
-                    scratchpad = val
-                elif key == "media":
-                    media_ids = [m.strip() for m in val.split(",") if m.strip()]
-            else:
-                post_lines.append(line)
+            if in_header:
+                match = re.match(r"^(\w+):\s*(.+)$", stripped)
+                if match and match.group(1).lower() in METADATA_KEYS:
+                    key = match.group(1).lower()
+                    val = match.group(2).strip()
+                    if key == "schedule":
+                        schedule = val
+                    elif key == "tag":
+                        tags.append(val)
+                    elif key == "title":
+                        title = val
+                    elif key == "scratchpad":
+                        scratchpad = val
+                    elif key == "media":
+                        media_ids = [m.strip() for m in val.split(",") if m.strip()]
+                    continue
+                else:
+                    in_header = False
+            post_lines.append(line)
 
         post_text = "\n".join(post_lines).strip()
         if not post_text:

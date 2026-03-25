@@ -37,12 +37,20 @@ class TypefullyClient:
     # --- Core request ---
 
     def _request(self, method: str, path: str, **kwargs: object) -> dict | None:
-        resp = self._client.request(method, path, **kwargs)
+        try:
+            resp = self._client.request(method, path, **kwargs)
+        except httpx.TimeoutException:
+            raise APIError(0, "Request timed out")
+        except httpx.HTTPError as e:
+            raise APIError(0, f"Network error: {e}")
         if resp.status_code == 204:
             return None
         if not resp.is_success:
             raise APIError(resp.status_code, resp.text)
-        return resp.json()
+        try:
+            return resp.json()
+        except (ValueError, KeyError):
+            raise APIError(resp.status_code, "Invalid JSON response")
 
     # --- Account resolution ---
 
