@@ -109,3 +109,74 @@ class TestRequestErrorHandling:
         with pytest.raises(APIError) as exc_info:
             client._request("GET", "/test")
         assert "invalid json" in str(exc_info.value).lower()
+
+
+class TestListRecentNullPublishedAt:
+    """Entries with null/missing published_at are skipped, not TypeError."""
+
+    def _make_client(self):
+        client = TypefullyClient(api_key="test")
+        client._social_sets_cache = [{"id": 1, "username": "a", "name": "A"}]
+        return client
+
+    def test_null_published_at_skipped(self):
+        client = self._make_client()
+        client.list_drafts = MagicMock(return_value={
+            "results": [
+                {"id": 1, "published_at": "2024-06-15T10:00:00Z"},
+                {"id": 2, "published_at": None},
+                {"id": 3, "published_at": "2024-06-10T10:00:00Z"},
+            ]
+        })
+        results = client.list_recent(1, since="2024-06-01", until="2024-06-30")
+        assert len(results) == 2
+        assert results[0]["id"] == 1
+        assert results[1]["id"] == 3
+
+    def test_missing_published_at_skipped(self):
+        client = self._make_client()
+        client.list_drafts = MagicMock(return_value={
+            "results": [
+                {"id": 1},
+                {"id": 2, "published_at": "2024-06-15T10:00:00Z"},
+            ]
+        })
+        results = client.list_recent(1, since="2024-06-01", until="2024-06-30")
+        assert len(results) == 1
+        assert results[0]["id"] == 2
+
+
+class TestEnsureTagsPagination:
+    """ensure_tags fetches all pages of tags, not just the first 50."""
+
+    def test_paginates_beyond_50_tags(self):
+        client = TypefullyClient(api_key="test")
+        page1 = [{"name": f"tag-{i}"} for i in range(50)]
+        page2 = [{"name": f"tag-{i}"} for i in range(50, 55)]
+
+        def mock_list_tags(social_set_id, limit=50, offset=0):
+            if offset == 0:
+                return {"results": page1}
+            return {"results": page2}
+
+        client.list_tags = MagicMock(side_effect=mock_list_tags)
+        client.create_tag = MagicMock()
+
+        # tag-52 exists on page 2, should NOT be created
+        warnings = client.ensure_tags(1, ["tag-52"])
+        client.create_tag.assert_not_called()
+        assert warnings == []
+
+    def test_creates_tag_not_on_any_page(self):
+        client = TypefullyClient(api_key="test")
+
+        def mock_list_tags(social_set_id, limit=50, offset=0):
+            if offset == 0:
+                return {"results": [{"name": f"tag-{i}"} for i in range(50)]}
+            return {"results": [{"name": f"tag-{i}"} for i in range(50, 55)]}
+
+        client.list_tags = MagicMock(side_effect=mock_list_tags)
+        client.create_tag = MagicMock()
+
+        client.ensure_tags(1, ["brand-new"])
+        client.create_tag.assert_called_once_with(1, "brand-new")

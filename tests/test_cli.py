@@ -122,6 +122,377 @@ class TestThreadValidation:
         assert result.exit_code == 1
 
 
+class TestDateValidation:
+    """Test --since/--until date validation on the recent command."""
+
+    def test_valid_date_accepted(self, runner):
+        with patch("typefully_cli.cli._get_client_and_console") as mock_gcc:
+            from unittest.mock import MagicMock
+            from typefully_cli.config import Config
+            from typefully_cli.console import Console
+
+            mock_client = MagicMock()
+            mock_client.__enter__ = MagicMock(return_value=mock_client)
+            mock_client.__exit__ = MagicMock(return_value=False)
+            mock_client.resolve_account.return_value = 123
+            mock_client.list_recent.return_value = []
+            mock_gcc.return_value = (mock_client, Console(quiet=True), Config(default_account="test"))
+            result = runner.invoke(cli, ["recent", "--since", "2024-01-01"])
+        assert result.exit_code == 0
+
+    def test_invalid_since_rejected(self, runner):
+        result = runner.invoke(cli, ["recent", "--since", "not-a-date"])
+        assert result.exit_code == 1
+        # Should produce structured JSON error, not raw Click text
+        assert '"invalid_input"' in result.output
+
+    def test_invalid_until_rejected(self, runner):
+        result = runner.invoke(cli, ["recent", "--until", "nope"])
+        assert result.exit_code == 1
+
+    def test_since_after_until_rejected(self, runner):
+        result = runner.invoke(cli, ["recent", "--since", "2025-12-01", "--until", "2025-01-01"])
+        assert result.exit_code == 1
+        assert '"invalid_input"' in result.output
+
+    def test_empty_dates_accepted(self, runner):
+        with patch("typefully_cli.cli._get_client_and_console") as mock_gcc:
+            from unittest.mock import MagicMock
+            from typefully_cli.config import Config
+            from typefully_cli.console import Console
+
+            mock_client = MagicMock()
+            mock_client.__enter__ = MagicMock(return_value=mock_client)
+            mock_client.__exit__ = MagicMock(return_value=False)
+            mock_client.resolve_account.return_value = 123
+            mock_client.list_recent.return_value = []
+            mock_gcc.return_value = (mock_client, Console(quiet=True), Config(default_account="test"))
+            result = runner.invoke(cli, ["recent"])
+        assert result.exit_code == 0
+
+
+class TestLimitValidation:
+    """Test that --limit is capped at 50."""
+
+    def test_drafts_limit_over_50_rejected(self, runner):
+        result = runner.invoke(cli, ["drafts", "-n", "100"])
+        assert result.exit_code == 1
+        assert '"invalid_input"' in result.output
+
+    def test_tags_limit_over_50_rejected(self, runner):
+        result = runner.invoke(cli, ["tags", "-n", "100"])
+        assert result.exit_code == 1
+
+    def test_recent_limit_over_50_rejected(self, runner):
+        result = runner.invoke(cli, ["recent", "-n", "100"])
+        assert result.exit_code == 1
+
+    def test_drafts_limit_zero_rejected(self, runner):
+        result = runner.invoke(cli, ["drafts", "-n", "0"])
+        assert result.exit_code == 1
+
+
+class TestCleanErrorPayloads:
+    """Test that partial-failure stdout errors don't contain raw API bodies."""
+
+    def test_delete_partial_errors_are_clean(self, runner):
+        from unittest.mock import MagicMock
+        from typefully_cli.config import Config
+        from typefully_cli.console import Console
+        from typefully_cli.exceptions import APIError
+
+        mock_client = MagicMock()
+        mock_client.__enter__ = MagicMock(return_value=mock_client)
+        mock_client.__exit__ = MagicMock(return_value=False)
+        mock_client.resolve_account.return_value = 123
+        mock_client.rate_delay.return_value = None
+        mock_client.delete_draft.side_effect = [None, APIError(404, '{"detail":"Not found","code":"not_found"}')]
+
+        with patch("typefully_cli.cli._get_client_and_console", return_value=(
+            mock_client, Console(quiet=True), Config(default_account="test")
+        )):
+            result = runner.invoke(cli, ["delete", "id1", "id2"])
+
+        assert result.exit_code == 3
+        jsons = []
+        for line in result.output.strip().split("\n"):
+            line = line.strip()
+            if line.startswith("{"):
+                try:
+                    jsons.append(json.loads(line))
+                except json.JSONDecodeError:
+                    pass
+        success = [j for j in jsons if j.get("ok") is True]
+        assert len(success) == 1
+        errors_list = success[0]["data"]["errors"]
+        assert len(errors_list) == 1
+        # Must NOT contain raw API body
+        assert "Not found" not in errors_list[0]["message"]
+        assert "detail" not in errors_list[0]["message"]
+        # Should contain clean message
+        assert "HTTP 404" in errors_list[0]["message"]
+
+
+class TestConfigInit:
+    def _make_mock_gcc(self, tmp_path, api_key_in_config=None):
+        """Return a (mock_client, console, config) tuple for patching _get_client_and_console."""
+        from unittest.mock import MagicMock
+        from typefully_cli.config import Config
+        from typefully_cli.console import Console
+
+        config_file = tmp_path / "config.toml"
+        if api_key_in_config:
+            config_file.write_text(f'[auth]\napi_key = "{api_key_in_config}"\n')
+        else:
+            config_file.write_text("")
+
+        cfg = Config(_path=config_file)
+        if api_key_in_config:
+            cfg.api_key = api_key_in_config
+
+        mock_client = MagicMock()
+        mock_client.__enter__ = MagicMock(return_value=mock_client)
+        mock_client.__exit__ = MagicMock(return_value=False)
+        mock_client.me.return_value = {"name": "TestUser"}
+
+        console = Console(quiet=True)
+        return mock_client, console, cfg, config_file
+
+    def test_successful_init(self, runner, tmp_path):
+        """Fresh config: prompts for key, validates, saves, outputs success JSON."""
+        from unittest.mock import MagicMock, patch
+        from typefully_cli.config import Config
+
+        config_file = tmp_path / "config.toml"
+        config_file.write_text("")
+        cfg = Config(_path=config_file)
+
+        mock_client = MagicMock()
+        mock_client.__enter__ = MagicMock(return_value=mock_client)
+        mock_client.__exit__ = MagicMock(return_value=False)
+        mock_client.me.return_value = {"name": "TestUser"}
+
+        with patch("typefully_cli.cli.Config.load", return_value=cfg):
+            with patch("typefully_cli.cli.TypefullyClient", return_value=mock_client):
+                result = runner.invoke(
+                    cli,
+                    ["config", "init"],
+                    input="tf_testkey_12345\n\n",
+                )
+
+        assert result.exit_code == 0
+        data = json.loads(result.output.strip().splitlines()[-1])
+        assert data["ok"] is True
+        assert data["data"]["message"] == "Config saved"
+
+    def test_invalid_key_exits_1(self, runner, tmp_path):
+        """Invalid API key: client.me() raises, exits 1."""
+        from unittest.mock import MagicMock, patch
+        from typefully_cli.config import Config
+        from typefully_cli.exceptions import TypefullyError
+
+        config_file = tmp_path / "config.toml"
+        config_file.write_text("")
+        cfg = Config(_path=config_file)
+
+        mock_client = MagicMock()
+        mock_client.__enter__ = MagicMock(return_value=mock_client)
+        mock_client.__exit__ = MagicMock(return_value=False)
+        mock_client.me.side_effect = TypefullyError("Unauthorized", code="auth_failed")
+
+        with patch("typefully_cli.cli.Config.load", return_value=cfg):
+            with patch("typefully_cli.cli.TypefullyClient", return_value=mock_client):
+                result = runner.invoke(
+                    cli,
+                    ["config", "init"],
+                    input="tf_badkey\n",
+                )
+
+        assert result.exit_code == 1
+
+    def test_existing_config_overwrite_declined(self, runner, tmp_path):
+        """Config already exists and user declines overwrite: aborts cleanly."""
+        from unittest.mock import patch
+        from typefully_cli.config import Config
+
+        config_file = tmp_path / "config.toml"
+        config_file.write_text('[auth]\napi_key = "tf_existing_key"\n')
+        cfg = Config(_path=config_file)
+        cfg.api_key = "tf_existing_key"
+
+        with patch("typefully_cli.cli.Config.load", return_value=cfg):
+            result = runner.invoke(
+                cli,
+                ["config", "init"],
+                input="n\n",
+            )
+
+        assert result.exit_code == 0
+        assert "Aborted" in result.output
+
+
+class TestOpenDraft:
+    def _mock_gcc(self, draft_data):
+        """Return a (mock_client, console, config) patchable triple."""
+        from unittest.mock import MagicMock
+        from typefully_cli.config import Config
+        from typefully_cli.console import Console
+
+        mock_client = MagicMock()
+        mock_client.__enter__ = MagicMock(return_value=mock_client)
+        mock_client.__exit__ = MagicMock(return_value=False)
+        mock_client.resolve_account.return_value = 123
+        mock_client.get_draft.return_value = draft_data
+
+        return mock_client, Console(quiet=True), Config(default_account="test")
+
+    def test_successful_open(self, runner):
+        """Happy path: launch returns 0, opened=True in JSON."""
+        draft = {"id": "d1", "private_url": "https://typefully.com/drafts/d1"}
+        mock_client, console, config = self._mock_gcc(draft)
+
+        with patch("typefully_cli.cli._get_client_and_console", return_value=(mock_client, console, config)):
+            with patch("typefully_cli.cli.click.launch", return_value=0) as mock_launch:
+                result = runner.invoke(cli, ["open", "d1"])
+
+        assert result.exit_code == 0
+        data = json.loads(result.output)
+        assert data["ok"] is True
+        assert data["data"]["opened"] is True
+        assert data["data"]["url"] == "https://typefully.com/drafts/d1"
+        mock_launch.assert_called_once_with("https://typefully.com/drafts/d1")
+
+    def test_no_url_exits_2(self, runner):
+        """Draft has no URL: exits 2 with error JSON."""
+        draft = {"id": "d1"}
+        mock_client, console, config = self._mock_gcc(draft)
+
+        with patch("typefully_cli.cli._get_client_and_console", return_value=(mock_client, console, config)):
+            result = runner.invoke(cli, ["open", "d1"])
+
+        assert result.exit_code == 2
+
+    def test_launch_fails_prints_url(self, runner):
+        """launch() returns non-zero: opened=False, URL still included."""
+        draft = {"id": "d1", "share_url": "https://typefully.com/share/d1"}
+        mock_client, console, config = self._mock_gcc(draft)
+
+        with patch("typefully_cli.cli._get_client_and_console", return_value=(mock_client, console, config)):
+            with patch("typefully_cli.cli.click.launch", return_value=1):
+                result = runner.invoke(cli, ["open", "d1"])
+
+        assert result.exit_code == 0
+        data = json.loads(result.output)
+        assert data["ok"] is True
+        assert data["data"]["opened"] is False
+        assert data["data"]["url"] == "https://typefully.com/share/d1"
+
+    def test_share_url_fallback(self, runner):
+        """No private_url but share_url present: uses share_url fallback."""
+        draft = {"id": "d2", "private_url": "", "share_url": "https://typefully.com/share/d2"}
+        mock_client, console, config = self._mock_gcc(draft)
+
+        with patch("typefully_cli.cli._get_client_and_console", return_value=(mock_client, console, config)):
+            with patch("typefully_cli.cli.click.launch", return_value=0):
+                result = runner.invoke(cli, ["open", "d2"])
+
+        assert result.exit_code == 0
+        data = json.loads(result.output)
+        assert data["data"]["url"] == "https://typefully.com/share/d2"
+
+
+class TestRecentCsv:
+    def _mock_gcc(self, posts):
+        from unittest.mock import MagicMock
+        from typefully_cli.config import Config
+        from typefully_cli.console import Console
+
+        mock_client = MagicMock()
+        mock_client.__enter__ = MagicMock(return_value=mock_client)
+        mock_client.__exit__ = MagicMock(return_value=False)
+        mock_client.resolve_account.return_value = 123
+        mock_client.list_recent.return_value = posts
+
+        return mock_client, Console(quiet=True), Config(default_account="test")
+
+    def test_csv_headers_and_rows(self, runner):
+        """CSV output contains correct header row and one data row."""
+        posts = [
+            {
+                "id": "p1",
+                "published_at": "2024-06-01T12:00:00Z",
+                "platforms": {
+                    "x": {"posts": [{"text": "Hello world tweet"}]}
+                },
+                "x_published_url": "https://x.com/user/status/1",
+            }
+        ]
+        mock_client, console, config = self._mock_gcc(posts)
+
+        with patch("typefully_cli.cli._get_client_and_console", return_value=(mock_client, console, config)):
+            result = runner.invoke(cli, ["recent", "--format", "csv"])
+
+        assert result.exit_code == 0
+        lines = result.output.strip().splitlines()
+        assert lines[0] == "id,published_at,text,x_url"
+        assert len(lines) == 2
+        assert "p1" in lines[1]
+        assert "Hello world tweet" in lines[1]
+        assert "https://x.com/user/status/1" in lines[1]
+
+    def test_csv_empty_posts_headers_only(self, runner):
+        """Empty posts list produces only the header row."""
+        mock_client, console, config = self._mock_gcc([])
+
+        with patch("typefully_cli.cli._get_client_and_console", return_value=(mock_client, console, config)):
+            result = runner.invoke(cli, ["recent", "--format", "csv"])
+
+        assert result.exit_code == 0
+        lines = result.output.strip().splitlines()
+        assert lines == ["id,published_at,text,x_url"]
+
+    def test_csv_text_truncated_to_280(self, runner):
+        """Text longer than 280 chars is truncated in CSV output."""
+        long_text = "x" * 400
+        posts = [
+            {
+                "id": "p2",
+                "published_at": "2024-06-01T12:00:00Z",
+                "platforms": {"x": {"posts": [{"text": long_text}]}},
+                "x_published_url": "",
+            }
+        ]
+        mock_client, console, config = self._mock_gcc(posts)
+
+        with patch("typefully_cli.cli._get_client_and_console", return_value=(mock_client, console, config)):
+            result = runner.invoke(cli, ["recent", "--format", "csv"])
+
+        assert result.exit_code == 0
+        lines = result.output.strip().splitlines()
+        # The text field in the CSV row should be max 280 chars
+        import csv as csv_mod
+        row = list(csv_mod.reader([lines[1]]))[0]
+        assert len(row[2]) <= 280
+
+    def test_csv_falls_back_to_preview(self, runner):
+        """If platforms.x is missing, falls back to draft preview field."""
+        posts = [
+            {
+                "id": "p3",
+                "published_at": "2024-06-02T09:00:00Z",
+                "preview": "Preview text here",
+                "x_published_url": "",
+            }
+        ]
+        mock_client, console, config = self._mock_gcc(posts)
+
+        with patch("typefully_cli.cli._get_client_and_console", return_value=(mock_client, console, config)):
+            result = runner.invoke(cli, ["recent", "--format", "csv"])
+
+        assert result.exit_code == 0
+        assert "Preview text here" in result.output
+
+
 class TestDeletePartialFailure:
     """Test the three-branch contract for delete."""
 

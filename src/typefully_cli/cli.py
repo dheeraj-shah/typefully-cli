@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+import csv
+import datetime
+import io
 import json
 import os
 import sys
@@ -16,7 +19,7 @@ from typefully_cli.batch import merge_defaults, parse_batch_file
 from typefully_cli.client import TypefullyClient
 from typefully_cli.config import Config, config_set
 from typefully_cli.console import Console, write_success
-from typefully_cli.exceptions import TypefullyError
+from typefully_cli.exceptions import APIError, TypefullyError
 from typefully_cli.media import upload_media
 from typefully_cli import output as fmt
 
@@ -65,9 +68,35 @@ def _resolve_account_id(
 def _handle_error(err: TypefullyError, console: Console) -> None:
     """Write structured error JSON to stderr and exit."""
     console.error_json(err.to_dict())
-    if isinstance(err, TypefullyError) and err.code in ("auth_failed", "no_account"):
+    if isinstance(err, TypefullyError) and err.code in ("auth_failed", "no_account", "invalid_input"):
         sys.exit(1)
     sys.exit(2)
+
+
+def _validate_date(value: str, name: str) -> str:
+    """Validate a YYYY-MM-DD date string. Returns the value or raises."""
+    if not value:
+        return value
+    try:
+        datetime.date.fromisoformat(value)
+    except ValueError:
+        raise TypefullyError(
+            f"Invalid {name} date: '{value}'",
+            code="invalid_input",
+            hint="Expected format: YYYY-MM-DD",
+        )
+    return value
+
+
+def _validate_limit(value: int, max_val: int = 50) -> int:
+    """Validate a pagination limit is within 1..max_val."""
+    if value < 1 or value > max_val:
+        raise TypefullyError(
+            f"Invalid limit: {value}",
+            code="invalid_input",
+            hint=f"Limit must be between 1 and {max_val}",
+        )
+    return value
 
 
 def _output(data: Any, use_text: bool, text_fn: Any = None) -> None:
@@ -76,6 +105,29 @@ def _output(data: Any, use_text: bool, text_fn: Any = None) -> None:
         text_fn(data)
     else:
         write_success(data)
+
+
+def _write_recent_csv(posts: list[dict]) -> None:
+    """Write recently published posts as CSV to stdout."""
+    buf = io.StringIO()
+    writer = csv.writer(buf)
+    writer.writerow(["id", "published_at", "text", "x_url"])
+    for d in posts:
+        text = ""
+        platforms = d.get("platforms", {})
+        if isinstance(platforms, dict) and "x" in platforms:
+            pp = platforms.get("x", {}).get("posts", [])
+            if pp:
+                text = pp[0].get("text", "")
+        if not text:
+            text = d.get("preview", "")
+        writer.writerow([
+            d.get("id", ""),
+            d.get("published_at", "")[:19],
+            text[:280],
+            d.get("x_published_url", ""),
+        ])
+    sys.stdout.write(buf.getvalue())
 
 
 def error_handler(f):
@@ -180,6 +232,38 @@ def config_path_cmd(**kwargs):
     write_success({"path": str(cfg._path)})
 
 
+@config.command("init")
+@error_handler
+def config_init_cmd(**kwargs):
+    """Interactive setup wizard. Prompts for API key and default account."""
+    cfg = Config.load()
+    if cfg.api_key:
+        if not click.confirm("Config already exists. Overwrite?", default=False):
+            click.echo("Aborted.")
+            return
+
+    api_key = click.prompt("API key (from typefully.com/settings/api)", type=str)
+    # Validate by calling /me
+    console = Console(quiet=False)
+    console.status("Validating API key...")
+    try:
+        client = TypefullyClient(api_key=api_key)
+        with client:
+            user = client.me()
+        console.success(f"Authenticated as {user.get('name', 'unknown')}")
+    except TypefullyError:
+        console.error_json({"code": "auth_failed", "message": "Invalid API key"})
+        sys.exit(1)
+
+    default_account = click.prompt("Default account (name or username, optional)", default="", show_default=False)
+
+    config_set(cfg, "api_key", api_key)
+    if default_account:
+        config_set(cfg, "default_account", default_account)
+
+    write_success({"message": "Config saved", "path": str(cfg._path)})
+
+
 # --- me ---
 
 
@@ -231,18 +315,30 @@ def account_detail(name, api_key, account, use_text, quiet):
 
 
 @cli.command()
-@click.option("-n", "--limit", default=3, type=int, help="Number of posts (default: 3)")
+@click.option("-n", "--limit", default=3, type=int, help="Number of posts (default: 3, max: 50)")
 @click.option("--since", default="", help="Start date YYYY-MM-DD")
 @click.option("--until", "until_date", default="", help="End date YYYY-MM-DD")
+@click.option("--format", "output_format", default=None, type=click.Choice(["csv"]), help="Output format")
 @shared_options
 @error_handler
-def recent(limit, since, until_date, api_key, account, use_text, quiet):
+def recent(limit, since, until_date, output_format, api_key, account, use_text, quiet):
     """List recently published posts."""
+    _validate_limit(limit)
+    since = _validate_date(since, "--since")
+    until_date = _validate_date(until_date, "--until")
+    if since and until_date and since > until_date:
+        raise TypefullyError(
+            f"--since ({since}) is after --until ({until_date})",
+            code="invalid_input",
+            hint="--since must be before or equal to --until",
+        )
     client, console, cfg = _get_client_and_console(api_key, quiet)
     with client:
         ssid = _resolve_account_id(client, account, cfg)
         posts = client.list_recent(ssid, limit=limit, since=since, until=until_date)
-        if use_text:
+        if output_format == "csv":
+            _write_recent_csv(posts)
+        elif use_text:
             fmt.print_recent(posts)
         else:
             write_success(posts)
@@ -380,6 +476,36 @@ def get(draft_id, api_key, account, use_text, quiet):
         _output(data, use_text, fmt.print_draft)
 
 
+# --- open ---
+
+
+@cli.command("open")
+@click.argument("draft_id")
+@shared_options
+@error_handler
+def open_draft(draft_id, api_key, account, use_text, quiet):
+    """Open a draft in the browser."""
+    client, console, cfg = _get_client_and_console(api_key, quiet)
+    with client:
+        ssid = _resolve_account_id(client, account, cfg)
+        data = client.get_draft(ssid, draft_id)
+        url = data.get("private_url", "")
+        if not url:
+            url = data.get("share_url", "")
+        if not url:
+            console.error_json({
+                "code": "no_url",
+                "message": f"No URL found for draft {draft_id}",
+            })
+            sys.exit(2)
+        launched = click.launch(url)
+        if launched != 0:
+            # Fallback: print URL (e.g. over SSH with no browser)
+            write_success({"url": url, "opened": False})
+        else:
+            write_success({"url": url, "opened": True})
+
+
 # --- update ---
 
 
@@ -478,7 +604,8 @@ def delete(ids, api_key, account, use_text, quiet):
                 client.delete_draft(ssid, draft_id)
                 deleted.append(draft_id)
             except TypefullyError as e:
-                errors.append({"id": draft_id, "message": str(e)})
+                msg = e.user_message if isinstance(e, APIError) else str(e)
+                errors.append({"id": draft_id, "message": msg})
 
         result = {"deleted": deleted, "errors": errors}
         _handle_multi_result(
@@ -501,6 +628,7 @@ def delete(ids, api_key, account, use_text, quiet):
 @error_handler
 def drafts(draft_status, limit, offset, order, tag, content_filter, api_key, account, use_text, quiet):
     """List drafts with optional filters."""
+    _validate_limit(limit)
     client, console, cfg = _get_client_and_console(api_key, quiet)
     with client:
         ssid = _resolve_account_id(client, account, cfg)
@@ -530,6 +658,7 @@ def drafts(draft_status, limit, offset, order, tag, content_filter, api_key, acc
 @error_handler
 def tags(limit, offset, api_key, account, use_text, quiet):
     """List tags."""
+    _validate_limit(limit)
     client, console, cfg = _get_client_and_console(api_key, quiet)
     with client:
         ssid = _resolve_account_id(client, account, cfg)
@@ -605,7 +734,7 @@ def batch(file_path, schedule, tags, share, dry_run, output_file, api_key, accou
         ---
         A standalone tweet
     """
-    with open(file_path) as f:
+    with open(file_path, encoding="utf-8") as f:
         content = f.read()
 
     entries = parse_batch_file(content)
@@ -660,9 +789,10 @@ def batch(file_path, schedule, tags, share, dry_run, output_file, api_key, accou
                     "share_url": data.get("share_url", ""),
                 })
             except TypefullyError as e:
+                msg = e.user_message if isinstance(e, APIError) else str(e)
                 errors.append({
                     "index": i,
-                    "message": str(e),
+                    "message": msg,
                     "preview": entry.posts[0][:50] if entry.posts else "",
                 })
 

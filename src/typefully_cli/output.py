@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from rich.console import Console as RichConsole
+from rich.markup import escape as _esc
 from rich.table import Table
 
 
@@ -10,9 +11,9 @@ _console = RichConsole()
 
 
 def print_user(data: dict) -> None:
-    _console.print(f"  Name:  {data.get('name', '?')}")
-    _console.print(f"  Email: {data.get('email', '?')}")
-    _console.print(f"  Key:   {data.get('api_key_label', '?')}")
+    _console.print(f"  Name:  {_esc(data.get('name', '?'))}")
+    _console.print(f"  Email: {_esc(data.get('email', '?'))}")
+    _console.print(f"  Key:   {_esc(data.get('api_key_label', '?'))}")
 
 
 def print_accounts(results: list[dict]) -> None:
@@ -24,20 +25,20 @@ def print_accounts(results: list[dict]) -> None:
     for s in results:
         platforms = ", ".join(s.get("platforms", {}).keys()) if isinstance(s.get("platforms"), dict) else ""
         table.add_row(
-            s.get("username", "?"),
+            _esc(s.get("username", "?")),
             str(s.get("id", "?")),
-            s.get("name", ""),
-            platforms,
+            _esc(s.get("name", "")),
+            _esc(platforms),
         )
     _console.print(table)
 
 
 def print_account_detail(data: dict) -> None:
-    _console.print(f"  Name: {data.get('name', '?')}")
+    _console.print(f"  Name: {_esc(data.get('name', '?'))}")
     _console.print(f"  ID:   {data.get('id', '?')}")
     team = data.get("team")
     if team:
-        _console.print(f"  Team: {team.get('name', '?')} (ID: {team.get('id', '?')})")
+        _console.print(f"  Team: {_esc(team.get('name', '?'))} (ID: {team.get('id', '?')})")
     platforms = data.get("platforms", {})
     if platforms:
         _console.print("\n  Connected platforms:")
@@ -46,7 +47,7 @@ def print_account_detail(data: dict) -> None:
                 continue
             username = info.get("username", "?")
             profile = info.get("profile_url", "")
-            _console.print(f"    [{name.upper()}] @{username}")
+            _console.print(f"    \\[{_esc(name.upper())}] @{_esc(username)}")
             if profile:
                 _console.print(f"      {profile}")
 
@@ -58,14 +59,14 @@ def print_draft(data: dict) -> None:
         val = data.get(key, "")
         if val:
             label = key.replace("_", " ").title()
-            _console.print(f"  {label}: {str(val)[:19]}")
+            _console.print(f"  {label}: {_esc(str(val)[:19])}")
     tags = data.get("tags", [])
     if tags:
         tag_str = ", ".join(
             t.get("name", t.get("slug", "?")) if isinstance(t, dict) else str(t)
             for t in tags
         )
-        _console.print(f"  Tags: {tag_str}")
+        _console.print(f"  Tags: {_esc(tag_str)}")
     for url_key in ("share_url", "private_url", "x_published_url", "linkedin_published_url"):
         val = data.get(url_key, "")
         if val:
@@ -73,17 +74,17 @@ def print_draft(data: dict) -> None:
             _console.print(f"  {label}: {val}")
     scratchpad = data.get("scratchpad_text", "")
     if scratchpad:
-        _console.print(f"  Scratchpad: {scratchpad}")
+        _console.print(f"  Scratchpad: {_esc(scratchpad)}")
     # Posts per platform
     for platform, pdata in data.get("platforms", {}).items():
         if not isinstance(pdata, dict) or not pdata.get("enabled"):
             continue
         posts = pdata.get("posts", [])
-        _console.print(f"\n  [{platform.upper()}] ({len(posts)} post{'s' if len(posts) != 1 else ''})")
+        _console.print(f"\n  \\[{_esc(platform.upper())}] ({len(posts)} post{'s' if len(posts) != 1 else ''})")
         for i, p in enumerate(posts):
             if i > 0:
                 _console.print("    ---")
-            _console.print(f"    {p.get('text', '(no text)')}")
+            _console.print(f"    {_esc(p.get('text', '(no text)'))}")
 
 
 def print_draft_short(data: dict) -> None:
@@ -123,7 +124,7 @@ def print_drafts_list(data: dict) -> None:
             tag_str = " " + " ".join(
                 f"#{t['name'] if isinstance(t, dict) else t}" for t in tags
             )
-        _console.print(f"  [{status}] {preview} (ID: {draft_id}){tag_str}")
+        _console.print(f"  \\[{_esc(status)}] {_esc(preview)} (ID: {draft_id}){_esc(tag_str)}")
 
 
 def print_recent(posts: list[dict]) -> None:
@@ -142,8 +143,8 @@ def print_recent(posts: list[dict]) -> None:
         if not text:
             text = d.get("preview", "(no text)")
         x_url = d.get("x_published_url", "")
-        _console.print(f"--- [{pub}] (ID: {draft_id}) ---")
-        _console.print(f"  {text}")
+        _console.print(f"--- \\[{_esc(pub)}] (ID: {draft_id}) ---")
+        _console.print(f"  {_esc(text)}")
         if x_url:
             _console.print(f"  -> {x_url}")
         _console.print()
@@ -154,17 +155,17 @@ def print_tags(results: list[dict]) -> None:
         _console.print("  (none)")
         return
     for t in results:
-        _console.print(f"  {t.get('name', '?')} (slug: {t.get('slug', '?')})")
+        _console.print(f"  {_esc(t.get('name', '?'))} (slug: {_esc(t.get('slug', '?'))})")
 
 
 def print_batch_dry_run(entries: list[dict]) -> None:
     for i, e in enumerate(entries):
         n = len(e.get("posts", []))
         label = "thread" if n > 1 else "single"
-        preview = e["posts"][0][:60] if e.get("posts") else "(empty)"
+        preview = _esc(e["posts"][0][:60]) if e.get("posts") else "(empty)"
         sched = e.get("schedule") or "(no schedule)"
         tags = ", ".join(e.get("tags", [])) or "(no tags)"
-        _console.print(f"  [{i+1}] {label} ({n} post{'s' if n > 1 else ''}) | {sched} | {tags}")
+        _console.print(f"  \\[{i+1}] {label} ({n} post{'s' if n > 1 else ''}) | {_esc(sched)} | {_esc(tags)}")
         _console.print(f"      {preview}")
         _console.print()
 
