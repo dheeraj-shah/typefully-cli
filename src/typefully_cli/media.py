@@ -3,10 +3,29 @@
 from __future__ import annotations
 
 import os
+import re
 
 from typefully_cli.client import TypefullyClient
 from typefully_cli.console import Console
 from typefully_cli.exceptions import MediaUploadError
+
+ALLOWED_EXTENSIONS = {"jpg", "jpeg", "png", "webp", "gif", "mp4", "mov", "pdf"}
+SAFE_NAME_RE = re.compile(r"[^a-zA-Z0-9_.()\-]")
+
+
+def _sanitize_filename(name: str) -> str:
+    """Sanitize filename to match Typefully's allowed charset.
+
+    Replaces disallowed characters with underscore. Validates extension.
+    """
+    stem, _, ext = name.rpartition(".")
+    if not ext or ext.lower() not in ALLOWED_EXTENSIONS:
+        raise MediaUploadError(
+            f"Unsupported file type: .{ext}" if ext else "No file extension",
+            hint=f"Supported: {', '.join(sorted(ALLOWED_EXTENSIONS))}",
+        )
+    safe_stem = SAFE_NAME_RE.sub("_", stem) or "upload"
+    return f"{safe_stem}.{ext}"
 
 
 def upload_media(
@@ -19,7 +38,7 @@ def upload_media(
     if not os.path.isfile(file_path):
         raise MediaUploadError(f"File not found: {file_path}")
 
-    file_name = os.path.basename(file_path)
+    file_name = _sanitize_filename(os.path.basename(file_path))
 
     # Step 1: Get presigned upload URL
     console.status(f"Requesting upload URL for {file_name}...")

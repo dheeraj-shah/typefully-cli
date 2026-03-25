@@ -99,3 +99,33 @@ class TestMergeDefaults:
         merge_defaults(entries, default_tags=("new", "existing"))
         assert "new" in entries[0].tags
         assert entries[0].tags.count("existing") == 1  # no duplicate
+
+
+class TestHeaderOnlyMetadata:
+    """Metadata is only parsed from consecutive lines at top of block."""
+
+    def test_tag_in_post_content_preserved(self):
+        content = "tag: real-tag\nHello world\ntag: you're it!"
+        entries = parse_batch_file(content)
+        assert entries[0].tags == ["real-tag"]
+        assert "tag: you're it!" in entries[0].posts[0]
+
+    def test_metadata_stops_at_first_non_metadata(self):
+        content = "schedule: next\nHello world\ntag: not-a-tag"
+        entries = parse_batch_file(content)
+        assert entries[0].schedule == "next"
+        assert entries[0].tags == []
+        assert "tag: not-a-tag" in entries[0].posts[0]
+
+    def test_all_metadata_at_top(self):
+        content = "tag: a\ntag: b\nschedule: now\nPost content here"
+        entries = parse_batch_file(content)
+        assert entries[0].tags == ["a", "b"]
+        assert entries[0].schedule == "now"
+        assert entries[0].posts == ["Post content here"]
+
+    def test_title_colon_in_content(self):
+        content = "title: My Title\nThe title: of my post is cool"
+        entries = parse_batch_file(content)
+        assert entries[0].title == "My Title"
+        assert "title: of my post" in entries[0].posts[0]

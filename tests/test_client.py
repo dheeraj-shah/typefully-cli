@@ -1,8 +1,12 @@
-"""Tests for TypefullyClient account resolution."""
+"""Tests for TypefullyClient account resolution and error handling."""
 
+from unittest.mock import MagicMock
+
+import httpx
 import pytest
+
 from typefully_cli.client import TypefullyClient
-from typefully_cli.exceptions import AccountError
+from typefully_cli.exceptions import AccountError, APIError
 
 
 class TestAccountResolution:
@@ -73,3 +77,35 @@ class TestAccountResolution:
             {"id": 2, "username": "beta", "name": "Beta"},
         ])
         assert client.resolve_account("beta", config_default="alpha") == 2
+
+
+class TestRequestErrorHandling:
+    """Test that transport and JSON errors are wrapped into APIError."""
+
+    def test_timeout_raises_api_error(self):
+        client = TypefullyClient(api_key="test")
+        client._client = MagicMock()
+        client._client.request.side_effect = httpx.ReadTimeout("timed out")
+        with pytest.raises(APIError) as exc_info:
+            client._request("GET", "/test")
+        assert "timed out" in str(exc_info.value).lower()
+
+    def test_connect_error_raises_api_error(self):
+        client = TypefullyClient(api_key="test")
+        client._client = MagicMock()
+        client._client.request.side_effect = httpx.ConnectError("connection refused")
+        with pytest.raises(APIError) as exc_info:
+            client._request("GET", "/test")
+        assert "network error" in str(exc_info.value).lower()
+
+    def test_invalid_json_raises_api_error(self):
+        client = TypefullyClient(api_key="test")
+        mock_resp = MagicMock()
+        mock_resp.status_code = 200
+        mock_resp.is_success = True
+        mock_resp.json.side_effect = ValueError("Invalid JSON")
+        client._client = MagicMock()
+        client._client.request.return_value = mock_resp
+        with pytest.raises(APIError) as exc_info:
+            client._request("GET", "/test")
+        assert "invalid json" in str(exc_info.value).lower()

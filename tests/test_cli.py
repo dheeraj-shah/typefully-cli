@@ -117,8 +117,86 @@ class TestBatchDryRun:
 class TestThreadValidation:
     def test_thread_requires_two_posts(self, runner):
         """Thread with less than 2 posts should fail."""
-        # Need to mock auth to even get past that
         with patch("typefully_cli.cli._get_client_and_console"):
             result = runner.invoke(cli, ["thread", "only one post"])
-        # Should fail with exit code 1
         assert result.exit_code == 1
+
+
+class TestDeletePartialFailure:
+    """Test the three-branch contract for delete."""
+
+    def _mock_client(self, delete_side_effects):
+        """Create mock client where delete_draft has per-call side effects."""
+        from unittest.mock import MagicMock
+        from typefully_cli.client import TypefullyClient
+        from typefully_cli.config import Config
+        from typefully_cli.console import Console
+        from typefully_cli.exceptions import APIError
+
+        mock_client = MagicMock(spec=TypefullyClient)
+        mock_client.__enter__ = MagicMock(return_value=mock_client)
+        mock_client.__exit__ = MagicMock(return_value=False)
+        mock_client.resolve_account.return_value = 123
+        mock_client.rate_delay.return_value = None
+
+        effects = []
+        for effect in delete_side_effects:
+            if effect == "ok":
+                effects.append(None)
+            else:
+                effects.append(APIError(404, "Not found"))
+        mock_client.delete_draft.side_effect = effects
+
+        mock_console = Console(quiet=True)
+        mock_config = Config(default_account="test")
+        return mock_client, mock_console, mock_config
+
+    def _parse_json_lines(self, output):
+        """Parse all JSON objects from mixed output (stdout + stderr merged by CliRunner)."""
+        results = []
+        for line in output.strip().split("\n"):
+            line = line.strip()
+            if line.startswith("{"):
+                try:
+                    results.append(json.loads(line))
+                except json.JSONDecodeError:
+                    pass
+        return results
+
+    def test_all_succeed_exit_0(self, runner):
+        client, console, config = self._mock_client(["ok", "ok"])
+        with patch("typefully_cli.cli._get_client_and_console", return_value=(client, console, config)):
+            result = runner.invoke(cli, ["delete", "id1", "id2"])
+        assert result.exit_code == 0
+        jsons = self._parse_json_lines(result.output)
+        success = [j for j in jsons if j.get("ok") is True]
+        assert len(success) == 1
+        assert len(success[0]["data"]["deleted"]) == 2
+
+    def test_all_fail_exit_2(self, runner):
+        client, console, config = self._mock_client(["fail", "fail"])
+        with patch("typefully_cli.cli._get_client_and_console", return_value=(client, console, config)):
+            result = runner.invoke(cli, ["delete", "id1", "id2"])
+        assert result.exit_code == 2
+        jsons = self._parse_json_lines(result.output)
+        # Only error JSON, no success JSON
+        errors = [j for j in jsons if j.get("ok") is False]
+        success = [j for j in jsons if j.get("ok") is True]
+        assert len(errors) == 1
+        assert errors[0]["error"]["code"] == "all_failed"
+        assert len(success) == 0
+
+    def test_partial_fail_exit_3(self, runner):
+        client, console, config = self._mock_client(["ok", "fail"])
+        with patch("typefully_cli.cli._get_client_and_console", return_value=(client, console, config)):
+            result = runner.invoke(cli, ["delete", "id1", "id2"])
+        assert result.exit_code == 3
+        jsons = self._parse_json_lines(result.output)
+        # Both success data and error envelope
+        success = [j for j in jsons if j.get("ok") is True]
+        errors = [j for j in jsons if j.get("ok") is False]
+        assert len(success) == 1
+        assert len(success[0]["data"]["deleted"]) == 1
+        assert len(errors) == 1
+        assert errors[0]["error"]["code"] == "partial_failure"
+        assert errors[0]["error"]["status"] == 3
