@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import sys
 import time
 
 import httpx
@@ -13,7 +14,7 @@ class TypefullyClient:
     BASE_URL = "https://api.typefully.com/v2"
     RATE_LIMIT_DELAY = 0.3
 
-    def __init__(self, api_key: str, base_url: str | None = None):
+    def __init__(self, api_key: str, base_url: str | None = None, debug: bool = False):
         self._client = httpx.Client(
             base_url=base_url or self.BASE_URL,
             headers={
@@ -24,6 +25,7 @@ class TypefullyClient:
             follow_redirects=True,
         )
         self._social_sets_cache: list[dict] | None = None
+        self._debug = debug
 
     def close(self) -> None:
         self._client.close()
@@ -37,12 +39,17 @@ class TypefullyClient:
     # --- Core request ---
 
     def _request(self, method: str, path: str, **kwargs: object) -> dict | None:
+        if self._debug:
+            params = kwargs.get("params", "")
+            sys.stderr.write(f"[DEBUG] {method} {path} {params}\n")
         try:
             resp = self._client.request(method, path, **kwargs)
         except httpx.TimeoutException:
             raise APIError(0, "Request timed out")
         except httpx.HTTPError as e:
             raise APIError(0, f"Network error: {e}")
+        if self._debug:
+            sys.stderr.write(f"[DEBUG] {resp.status_code} ({resp.elapsed.total_seconds():.2f}s)\n")
         if resp.status_code == 204:
             return None
         if not resp.is_success:
@@ -196,21 +203,9 @@ class TypefullyClient:
         if not resp.is_success:
             raise APIError(resp.status_code, "S3 upload failed")
 
-    def poll_media(
-        self,
-        social_set_id: int,
-        media_id: str,
-        interval: float = 2.0,
-        max_attempts: int = 30,
-    ) -> dict:
-        """Poll media status until ready or timeout."""
-        for _ in range(max_attempts):
-            time.sleep(interval)
-            data = self._request("GET", f"/social-sets/{social_set_id}/media/{media_id}") or {}
-            status = data.get("status", "unknown")
-            if status in ("ready", "completed"):
-                return data
-        return data  # return last status even if not ready
+    def get_media(self, social_set_id: int, media_id: str) -> dict:
+        """Get current media status."""
+        return self._request("GET", f"/social-sets/{social_set_id}/media/{media_id}") or {}
 
     # --- Recent (with pagination) ---
 

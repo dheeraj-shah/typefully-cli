@@ -17,6 +17,11 @@ else:
         import tomli as tomllib  # type: ignore[no-redef]
 
 
+def _toml_escape(value: str) -> str:
+    """Escape a string for TOML basic string (double-quoted)."""
+    return value.replace("\\", "\\\\").replace('"', '\\"').replace("\n", "\\n")
+
+
 def _config_path() -> Path:
     """Return the config file path. Respects XDG_CONFIG_HOME."""
     base = os.environ.get("XDG_CONFIG_HOME", os.path.expanduser("~/.config"))
@@ -52,13 +57,13 @@ class Config:
         lines: list[str] = []
         lines.append("[auth]")
         if self.api_key:
-            lines.append(f'api_key = "{self.api_key}"')
+            lines.append(f'api_key = "{_toml_escape(self.api_key)}"')
         if self.onepassword_item:
-            lines.append(f'onepassword_item = "{self.onepassword_item}"')
+            lines.append(f'onepassword_item = "{_toml_escape(self.onepassword_item)}"')
         lines.append("")
         lines.append("[defaults]")
         if self.default_account:
-            lines.append(f'account = "{self.default_account}"')
+            lines.append(f'account = "{_toml_escape(self.default_account)}"')
         lines.append("")
         self._path.write_text("\n".join(lines))
         os.chmod(self._path, 0o600)

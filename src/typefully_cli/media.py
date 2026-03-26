@@ -57,12 +57,12 @@ def upload_media(
     with console.progress("Processing media...") as progress:
         task = progress.add_task("Processing...", total=30)
         data = {}
-        for attempt in range(30):
+        for _ in range(30):
             import time
 
             time.sleep(2)
             progress.advance(task)
-            data = client._request("GET", f"/social-sets/{social_set_id}/media/{media_id}") or {}
+            data = client.get_media(social_set_id, media_id)
             status = data.get("status", "unknown")
             if status in ("ready", "completed"):
                 return {"media_id": media_id, "status": "ready"}

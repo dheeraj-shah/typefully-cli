@@ -28,7 +28,7 @@ from typefully_cli import output as fmt
 
 
 def shared_options(f):
-    """Add --api-key, --account, --text, --quiet to a subcommand."""
+    """Add --api-key, --account, --text, --quiet, --debug to a subcommand."""
 
     @click.option("--api-key", default=None, help="API key (overrides env/config)")
     @click.option(
@@ -36,6 +36,7 @@ def shared_options(f):
     )
     @click.option("--text", "use_text", is_flag=True, help="Human-readable Rich output")
     @click.option("--quiet", "-q", is_flag=True, help="Suppress non-error stderr")
+    @click.option("--debug", is_flag=True, hidden=True, help="Log HTTP requests to stderr")
     @wraps(f)
     def wrapper(*args, **kwargs):
         return f(*args, **kwargs)
@@ -44,13 +45,13 @@ def shared_options(f):
 
 
 def _get_client_and_console(
-    api_key: str | None, quiet: bool, config: Config | None = None
+    api_key: str | None, quiet: bool, config: Config | None = None, debug: bool = False
 ) -> tuple[TypefullyClient, Console, Config]:
     """Resolve auth and return client + console."""
     cfg = config or Config.load()
     console = Console(quiet=quiet)
     key = resolve_api_key(api_key, os.environ.get("TYPEFULLY_API_KEY"), cfg)
-    client = TypefullyClient(api_key=key)
+    client = TypefullyClient(api_key=key, debug=debug)
     return client, console, cfg
 
 
@@ -270,9 +271,9 @@ def config_init_cmd(**kwargs):
 @cli.command()
 @shared_options
 @error_handler
-def me(api_key, account, use_text, quiet):
+def me(api_key, account, use_text, quiet, debug):
     """Show current authenticated user."""
-    client, console, cfg = _get_client_and_console(api_key, quiet)
+    client, console, cfg = _get_client_and_console(api_key, quiet, debug=debug)
     with client:
         data = client.me()
         _output(data, use_text, fmt.print_user)
@@ -284,9 +285,9 @@ def me(api_key, account, use_text, quiet):
 @cli.command()
 @shared_options
 @error_handler
-def accounts(api_key, account, use_text, quiet):
+def accounts(api_key, account, use_text, quiet, debug):
     """List connected social sets."""
-    client, console, cfg = _get_client_and_console(api_key, quiet)
+    client, console, cfg = _get_client_and_console(api_key, quiet, debug=debug)
     with client:
         sets = client.get_social_sets()
         if use_text:
@@ -302,9 +303,9 @@ def accounts(api_key, account, use_text, quiet):
 @click.argument("name", required=False, default=None)
 @shared_options
 @error_handler
-def account_detail(name, api_key, account, use_text, quiet):
+def account_detail(name, api_key, account, use_text, quiet, debug):
     """Show details for an account. NAME is optional (falls back to --account or config default)."""
-    client, console, cfg = _get_client_and_console(api_key, quiet)
+    client, console, cfg = _get_client_and_console(api_key, quiet, debug=debug)
     with client:
         ssid = _resolve_account_id(client, account, cfg, positional=name)
         data = client.get_social_set(ssid)
@@ -321,7 +322,7 @@ def account_detail(name, api_key, account, use_text, quiet):
 @click.option("--format", "output_format", default=None, type=click.Choice(["csv"]), help="Output format")
 @shared_options
 @error_handler
-def recent(limit, since, until_date, output_format, api_key, account, use_text, quiet):
+def recent(limit, since, until_date, output_format, api_key, account, use_text, quiet, debug):
     """List recently published posts."""
     _validate_limit(limit)
     since = _validate_date(since, "--since")
@@ -332,7 +333,7 @@ def recent(limit, since, until_date, output_format, api_key, account, use_text, 
             code="invalid_input",
             hint="--since must be before or equal to --until",
         )
-    client, console, cfg = _get_client_and_console(api_key, quiet)
+    client, console, cfg = _get_client_and_console(api_key, quiet, debug=debug)
     with client:
         ssid = _resolve_account_id(client, account, cfg)
         posts = client.list_recent(ssid, limit=limit, since=since, until=until_date)
@@ -370,10 +371,10 @@ def draft(
     text, schedule, tags, title, media, share, reply_to, scratchpad,
     qrt, threadify, auto_retweet, auto_plug,
     linkedin, threads, bluesky, mastodon,
-    api_key, account, use_text, quiet,
+    api_key, account, use_text, quiet, debug,
 ):
     """Create a draft post."""
-    client, console, cfg = _get_client_and_console(api_key, quiet)
+    client, console, cfg = _get_client_and_console(api_key, quiet, debug=debug)
     with client:
         ssid = _resolve_account_id(client, account, cfg)
 
@@ -424,7 +425,7 @@ def thread(
     posts, schedule, tags, title, media, share, reply_to, scratchpad,
     qrt, auto_retweet, auto_plug,
     linkedin, threads, bluesky, mastodon,
-    api_key, account, use_text, quiet,
+    api_key, account, use_text, quiet, debug,
 ):
     """Create a multi-post thread. Provide 2+ posts as separate arguments."""
     if len(posts) < 2:
@@ -435,7 +436,7 @@ def thread(
         })
         sys.exit(1)
 
-    client, console, cfg = _get_client_and_console(api_key, quiet)
+    client, console, cfg = _get_client_and_console(api_key, quiet, debug=debug)
     with client:
         ssid = _resolve_account_id(client, account, cfg)
 
@@ -467,9 +468,9 @@ def thread(
 @click.argument("draft_id")
 @shared_options
 @error_handler
-def get(draft_id, api_key, account, use_text, quiet):
+def get(draft_id, api_key, account, use_text, quiet, debug):
     """View a specific draft."""
-    client, console, cfg = _get_client_and_console(api_key, quiet)
+    client, console, cfg = _get_client_and_console(api_key, quiet, debug=debug)
     with client:
         ssid = _resolve_account_id(client, account, cfg)
         data = client.get_draft(ssid, draft_id)
@@ -483,9 +484,9 @@ def get(draft_id, api_key, account, use_text, quiet):
 @click.argument("draft_id")
 @shared_options
 @error_handler
-def open_draft(draft_id, api_key, account, use_text, quiet):
+def open_draft(draft_id, api_key, account, use_text, quiet, debug):
     """Open a draft in the browser."""
-    client, console, cfg = _get_client_and_console(api_key, quiet)
+    client, console, cfg = _get_client_and_console(api_key, quiet, debug=debug)
     with client:
         ssid = _resolve_account_id(client, account, cfg)
         data = client.get_draft(ssid, draft_id)
@@ -525,10 +526,10 @@ def open_draft(draft_id, api_key, account, use_text, quiet):
 def update(
     draft_id, text, schedule, tags, title, share_flag, scratchpad,
     auto_retweet, auto_plug, media,
-    api_key, account, use_text, quiet,
+    api_key, account, use_text, quiet, debug,
 ):
     """Update an existing draft. Text supports === for thread post splitting."""
-    client, console, cfg = _get_client_and_console(api_key, quiet)
+    client, console, cfg = _get_client_and_console(api_key, quiet, debug=debug)
     with client:
         ssid = _resolve_account_id(client, account, cfg)
 
@@ -589,9 +590,9 @@ def update(
 @click.argument("ids", nargs=-1, required=True)
 @shared_options
 @error_handler
-def delete(ids, api_key, account, use_text, quiet):
+def delete(ids, api_key, account, use_text, quiet, debug):
     """Delete one or more drafts."""
-    client, console, cfg = _get_client_and_console(api_key, quiet)
+    client, console, cfg = _get_client_and_console(api_key, quiet, debug=debug)
     with client:
         ssid = _resolve_account_id(client, account, cfg)
         deleted: list[str] = []
@@ -626,10 +627,10 @@ def delete(ids, api_key, account, use_text, quiet):
 @click.option("--content-filter", default=None, help="Filter: original|repost")
 @shared_options
 @error_handler
-def drafts(draft_status, limit, offset, order, tag, content_filter, api_key, account, use_text, quiet):
+def drafts(draft_status, limit, offset, order, tag, content_filter, api_key, account, use_text, quiet, debug):
     """List drafts with optional filters."""
     _validate_limit(limit)
-    client, console, cfg = _get_client_and_console(api_key, quiet)
+    client, console, cfg = _get_client_and_console(api_key, quiet, debug=debug)
     with client:
         ssid = _resolve_account_id(client, account, cfg)
         params: dict[str, Any] = {
@@ -656,10 +657,10 @@ def drafts(draft_status, limit, offset, order, tag, content_filter, api_key, acc
 @click.option("--offset", default=0, type=int)
 @shared_options
 @error_handler
-def tags(limit, offset, api_key, account, use_text, quiet):
+def tags(limit, offset, api_key, account, use_text, quiet, debug):
     """List tags."""
     _validate_limit(limit)
-    client, console, cfg = _get_client_and_console(api_key, quiet)
+    client, console, cfg = _get_client_and_console(api_key, quiet, debug=debug)
     with client:
         ssid = _resolve_account_id(client, account, cfg)
         data = client.list_tags(ssid, limit=limit, offset=offset)
@@ -677,9 +678,9 @@ def tags(limit, offset, api_key, account, use_text, quiet):
 @click.argument("name")
 @shared_options
 @error_handler
-def tag_create(name, api_key, account, use_text, quiet):
+def tag_create(name, api_key, account, use_text, quiet, debug):
     """Create a tag."""
-    client, console, cfg = _get_client_and_console(api_key, quiet)
+    client, console, cfg = _get_client_and_console(api_key, quiet, debug=debug)
     with client:
         ssid = _resolve_account_id(client, account, cfg)
         data = client.create_tag(ssid, name)
@@ -696,9 +697,9 @@ def tag_create(name, api_key, account, use_text, quiet):
 @click.argument("file_path", type=click.Path(exists=True))
 @shared_options
 @error_handler
-def upload(file_path, api_key, account, use_text, quiet):
+def upload(file_path, api_key, account, use_text, quiet, debug):
     """Upload a media file and return its media ID."""
-    client, console, cfg = _get_client_and_console(api_key, quiet)
+    client, console, cfg = _get_client_and_console(api_key, quiet, debug=debug)
     with client:
         ssid = _resolve_account_id(client, account, cfg)
         data = upload_media(client, ssid, file_path, console)
@@ -717,7 +718,7 @@ def upload(file_path, api_key, account, use_text, quiet):
 @click.option("--output", "output_file", default=None, type=click.Path(), help="JSON results log")
 @shared_options
 @error_handler
-def batch(file_path, schedule, tags, share, dry_run, output_file, api_key, account, use_text, quiet):
+def batch(file_path, schedule, tags, share, dry_run, output_file, api_key, account, use_text, quiet, debug):
     """Batch create drafts from a text file.
 
     File format: drafts separated by --- on its own line.
@@ -748,7 +749,7 @@ def batch(file_path, schedule, tags, share, dry_run, output_file, api_key, accou
             write_success(result)
         return
 
-    client, console, cfg = _get_client_and_console(api_key, quiet)
+    client, console, cfg = _get_client_and_console(api_key, quiet, debug=debug)
     with client:
         ssid = _resolve_account_id(client, account, cfg)
 
