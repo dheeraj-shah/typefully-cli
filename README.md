@@ -2,8 +2,8 @@
 
 Manage [Typefully](https://typefully.com) drafts, threads, and publishing from your terminal. Built for AI agents. Works great for humans too.
 
-[![PyPI](https://img.shields.io/pypi/v/typefully-cli)](https://pypi.org/project/typefully-cli/)
-[![Python 3.9+](https://img.shields.io/pypi/pyversions/typefully-cli)](https://pypi.org/project/typefully-cli/)
+[![PyPI](https://img.shields.io/pypi/v/typefully-cli?v=1)](https://pypi.org/project/typefully-cli/)
+[![Python 3.9+](https://img.shields.io/pypi/pyversions/typefully-cli?v=1)](https://pypi.org/project/typefully-cli/)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 
 ## Why
