@@ -15,9 +15,10 @@ Manage [Typefully](https://typefully.com) drafts, threads, and publishing from y
 ## Install
 
 ```bash
-pipx install typefully-cli        # recommended
-uv tool install typefully-cli     # alternative
-pip install typefully-cli          # fallback
+brew install dheeraj-shah/tap/typefully-cli   # macOS (recommended)
+pipx install typefully-cli                     # any OS
+uv tool install typefully-cli                  # alternative
+pip install typefully-cli                      # fallback
 ```
 
 ## Quick Start
@@ -62,17 +63,11 @@ typefully get 12345 --text
 - `typefully recent --format csv` -- export published posts to CSV
 - `typefully config init` -- guided first-time setup
 
-**Shell completions** -- add to your shell rc file:
+**Shell completions:**
 
 ```bash
-# Bash
-eval "$(_TYPEFULLY_COMPLETE=bash_source typefully)"
-
-# Zsh
-eval "$(_TYPEFULLY_COMPLETE=zsh_source typefully)"
-
-# Fish
-_TYPEFULLY_COMPLETE=fish_source typefully | source
+typefully completions install   # auto-detects your shell, updates rc file
+typefully completions show      # print raw script (for manual setup)
 ```
 
 ## For Agents
@@ -182,6 +177,8 @@ All account-scoped commands accept `--api-key`, `--account`, `--text`, `--quiet`
 | `config init` | Interactive first-time setup |
 | `config show` | Show config (secrets redacted) |
 | `config path` | Print config file path |
+| `completions install` | Auto-install shell completions (bash/zsh/fish) |
+| `completions show` | Print raw completion script |
 
 **Draft options:** `--schedule ISO|next|now`, `--tag SLUG` (repeatable, auto-created), `--title`, `--media ID`, `--share`, `--reply-to URL`, `--scratchpad`, `--qrt URL`, `--threadify`, `--auto-retweet/--no-auto-retweet`, `--auto-plug/--no-auto-plug`, `--linkedin`, `--threads`, `--bluesky`, `--mastodon`
 
