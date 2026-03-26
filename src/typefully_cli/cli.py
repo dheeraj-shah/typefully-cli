@@ -22,6 +22,7 @@ from typefully_cli.console import Console, write_success
 from typefully_cli.exceptions import APIError, TypefullyError
 from typefully_cli.media import upload_media
 from typefully_cli import output as fmt
+from typefully_cli.completions import completions
 
 
 # --- Shared option decorator ---
@@ -199,6 +200,9 @@ def cli():
 
 
 # --- Config commands ---
+
+
+cli.add_command(completions)
 
 
 @cli.group()
