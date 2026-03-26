@@ -48,6 +48,7 @@ class Config:
     def save(self) -> None:
         """Write config back to TOML. Minimal hand-written TOML (no dependency)."""
         self._path.parent.mkdir(parents=True, exist_ok=True)
+        os.chmod(self._path.parent, 0o700)
         lines: list[str] = []
         lines.append("[auth]")
         if self.api_key:
@@ -60,6 +61,7 @@ class Config:
             lines.append(f'account = "{self.default_account}"')
         lines.append("")
         self._path.write_text("\n".join(lines))
+        os.chmod(self._path, 0o600)
 
     def to_dict(self, *, redact: bool = True) -> dict[str, Any]:
         d: dict[str, Any] = {
