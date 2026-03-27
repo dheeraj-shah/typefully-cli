@@ -1,0 +1,141 @@
+name: Monitor Typefully API & Competitors
+
+on:
+  schedule:
+    - cron: "0 8 * * 1,4"  # Mon & Thu 8am UTC (1:30pm IST)
+  workflow_dispatch: {}
+
+permissions:
+  issues: write
+  contents: read
+
+jobs:
+  monitor:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Restore cache
+        uses: actions/cache/restore@v4
+        with:
+          path: .monitor-cache
+          key: monitor-cache-${{ github.run_id }}
+          restore-keys: monitor-cache-
+
+      - name: Init cache dir
+        run: mkdir -p .monitor-cache
+
+      - name: Fetch OpenAPI spec
+        run: |
+          curl -sf https://api.typefully.com/ -o .monitor-cache/openapi-new.json || true
+          if [ ! -f .monitor-cache/openapi.json ]; then
+            cp .monitor-cache/openapi-new.json .monitor-cache/openapi.json 2>/dev/null || true
+          fi
+
+      - name: Fetch agent-skills source
+        run: |
+          curl -sf https://raw.githubusercontent.com/typefully/agent-skills/main/scripts/typefully.js \
+            -o .monitor-cache/agent-skills-new.js || true
+          if [ ! -f .monitor-cache/agent-skills.js ]; then
+            cp .monitor-cache/agent-skills-new.js .monitor-cache/agent-skills.js 2>/dev/null || true
+          fi
+
+      - name: Fetch MCP tool list
+        run: |
+          curl -sf -X POST https://mcp.typefully.com/mcp \
+            -H "Content-Type: application/json" \
+            -d '{"jsonrpc":"2.0","id":1,"method":"tools/list"}' \
+            -o .monitor-cache/mcp-tools-new.json || true
+          if [ ! -f .monitor-cache/mcp-tools.json ]; then
+            cp .monitor-cache/mcp-tools-new.json .monitor-cache/mcp-tools.json 2>/dev/null || true
+          fi
+
+      - name: Fetch npm package version
+        run: |
+          npm view @typefully/agent-skills version 2>/dev/null \
+            > .monitor-cache/npm-version-new.txt || true
+          if [ ! -f .monitor-cache/npm-version.txt ]; then
+            cp .monitor-cache/npm-version-new.txt .monitor-cache/npm-version.txt 2>/dev/null || true
+          fi
+
+      - name: Fetch changelog
+        run: |
+          curl -sf https://typefully.com/blog/changelog \
+            | sha256sum | cut -d' ' -f1 > .monitor-cache/changelog-hash-new.txt || true
+          if [ ! -f .monitor-cache/changelog-hash.txt ]; then
+            cp .monitor-cache/changelog-hash-new.txt .monitor-cache/changelog-hash.txt 2>/dev/null || true
+          fi
+
+      - name: Diff and report
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          changes=""
+
+          # OpenAPI spec
+          if [ -f .monitor-cache/openapi-new.json ] && [ -f .monitor-cache/openapi.json ]; then
+            d=$(diff .monitor-cache/openapi.json .monitor-cache/openapi-new.json || true)
+            if [ -n "$d" ]; then
+              changes="${changes}\n## OpenAPI Spec Changed\n\`\`\`diff\n${d}\n\`\`\`\n"
+            fi
+          fi
+
+          # agent-skills source
+          if [ -f .monitor-cache/agent-skills-new.js ] && [ -f .monitor-cache/agent-skills.js ]; then
+            d=$(diff .monitor-cache/agent-skills.js .monitor-cache/agent-skills-new.js || true)
+            if [ -n "$d" ]; then
+              changes="${changes}\n## agent-skills (typefully.js) Changed\n\`\`\`diff\n${d}\n\`\`\`\n"
+            fi
+          fi
+
+          # MCP tools
+          if [ -f .monitor-cache/mcp-tools-new.json ] && [ -f .monitor-cache/mcp-tools.json ]; then
+            d=$(diff .monitor-cache/mcp-tools.json .monitor-cache/mcp-tools-new.json || true)
+            if [ -n "$d" ]; then
+              changes="${changes}\n## MCP Tool List Changed\n\`\`\`diff\n${d}\n\`\`\`\n"
+            fi
+          fi
+
+          # npm version
+          if [ -f .monitor-cache/npm-version-new.txt ] && [ -f .monitor-cache/npm-version.txt ]; then
+            old=$(cat .monitor-cache/npm-version.txt)
+            new=$(cat .monitor-cache/npm-version-new.txt)
+            if [ "$old" != "$new" ]; then
+              changes="${changes}\n## npm Package Version Changed\n- Old: ${old}\n- New: ${new}\n"
+            fi
+          fi
+
+          # Changelog hash
+          if [ -f .monitor-cache/changelog-hash-new.txt ] && [ -f .monitor-cache/changelog-hash.txt ]; then
+            old=$(cat .monitor-cache/changelog-hash.txt)
+            new=$(cat .monitor-cache/changelog-hash-new.txt)
+            if [ "$old" != "$new" ]; then
+              changes="${changes}\n## Changelog Page Updated\nHash changed from \`${old}\` to \`${new}\`.\nCheck: https://typefully.com/blog/changelog\n"
+            fi
+          fi
+
+          # Report
+          if [ -n "$changes" ]; then
+            body=$(printf "Automated monitoring detected changes in Typefully's ecosystem.\n\n${changes}\n\nReview these changes and determine if typefully-cli needs updates.")
+            gh issue create \
+              --title "Monitor: Typefully API/MCP changes detected $(date +%Y-%m-%d)" \
+              --body "$body" \
+              --label "monitor"
+            echo "Changes detected. Issue created."
+          else
+            echo "No changes detected."
+          fi
+
+          # Update cache
+          for f in openapi agent-skills mcp-tools; do
+            [ -f ".monitor-cache/${f}-new.json" ] && cp ".monitor-cache/${f}-new.json" ".monitor-cache/${f}.json"
+            [ -f ".monitor-cache/${f}-new.js" ] && cp ".monitor-cache/${f}-new.js" ".monitor-cache/${f}.js"
+          done
+          [ -f .monitor-cache/npm-version-new.txt ] && cp .monitor-cache/npm-version-new.txt .monitor-cache/npm-version.txt
+          [ -f .monitor-cache/changelog-hash-new.txt ] && cp .monitor-cache/changelog-hash-new.txt .monitor-cache/changelog-hash.txt
+
+      - name: Save cache
+        uses: actions/cache/save@v4
+        with:
+          path: .monitor-cache
+          key: monitor-cache-${{ github.run_id }}
