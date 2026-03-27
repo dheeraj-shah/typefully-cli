@@ -33,6 +33,7 @@ class Config:
     api_key: str = ""
     onepassword_item: str = ""
     default_account: str = ""
+    output_format: str = "text"
     _path: Path = field(default_factory=_config_path)
 
     @classmethod
@@ -48,6 +49,7 @@ class Config:
         cfg.onepassword_item = auth.get("onepassword_item", "")
         defaults = data.get("defaults", {})
         cfg.default_account = defaults.get("account", "")
+        cfg.output_format = defaults.get("output_format", "text")
         return cfg
 
     def save(self) -> None:
@@ -64,6 +66,8 @@ class Config:
         lines.append("[defaults]")
         if self.default_account:
             lines.append(f'account = "{_toml_escape(self.default_account)}"')
+        if self.output_format:
+            lines.append(f'output_format = "{_toml_escape(self.output_format)}"')
         lines.append("")
         self._path.write_text("\n".join(lines))
         os.chmod(self._path, 0o600)
@@ -79,12 +83,13 @@ class Config:
             d["auth"]["onepassword_item"] = self.onepassword_item
         if self.default_account:
             d["defaults"]["account"] = self.default_account
+        d["defaults"]["output_format"] = self.output_format
         return d
 
 
 # --- Config set/show helpers ---
 
-_VALID_KEYS = {"api_key", "default_account", "onepassword_item"}
+_VALID_KEYS = {"api_key", "default_account", "onepassword_item", "output_format"}
 
 
 def config_set(cfg: Config, key: str, value: str) -> dict:
@@ -97,6 +102,8 @@ def config_set(cfg: Config, key: str, value: str) -> dict:
         cfg.default_account = value
     elif key == "onepassword_item":
         cfg.onepassword_item = value
+    elif key == "output_format":
+        cfg.output_format = value
     cfg.save()
     display_value = _redact(value) if key == "api_key" else value
     return {"key": key, "value": display_value}

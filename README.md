@@ -1,6 +1,6 @@
 # typefully-cli
 
-Manage [Typefully](https://typefully.com) drafts, threads, and publishing from your terminal. Built for AI agents. Works great for humans too.
+Manage [Typefully](https://typefully.com) drafts, threads, and publishing from your terminal.
 
 [![PyPI](https://img.shields.io/pypi/v/typefully-cli?v=1)](https://pypi.org/project/typefully-cli/)
 [![Python 3.9+](https://img.shields.io/pypi/pyversions/typefully-cli?v=1)](https://pypi.org/project/typefully-cli/)
@@ -8,9 +8,10 @@ Manage [Typefully](https://typefully.com) drafts, threads, and publishing from y
 
 ## Why
 
-- **Automate publishing** -- schedule and publish from CI/CD pipelines, cron jobs, or scripts
+- **Publish from your terminal** -- draft, schedule, and publish without opening a browser
 - **Batch create** -- turn a text file into 50 drafts with one command
-- **Agent-native** -- JSON output, structured errors, deterministic exit codes. Designed for Claude Code, LLM agents, and automation
+- **Analytics and queue** -- check post performance and manage your posting schedule
+- **Agent-compatible** -- JSON output mode, structured errors, deterministic exit codes
 
 ## Install
 
@@ -20,6 +21,8 @@ pipx install typefully-cli                     # any OS
 uv tool install typefully-cli                  # alternative
 pip install typefully-cli                      # fallback
 ```
+
+> **Tip:** Add `alias tf=typefully` to your shell rc file for quick access.
 
 ## Quick Start
 
@@ -39,40 +42,51 @@ typefully draft "Hello world" --schedule next
 # Create a thread
 typefully thread "First post" "Second post" --tag launch
 
+# Post to all connected platforms
+typefully draft "Big announcement" --all --schedule next
+
+# Read post content from a file
+typefully draft --file post.txt --schedule next
+
 # Batch create from file
 typefully batch posts.txt --schedule next --tag campaign
 
-# Upload media and attach it
-typefully upload photo.jpg
-typefully draft "Check this out" --media <media_id>
+# Check analytics
+typefully analytics --start-date 2026-01-01
+
+# View your posting queue
+typefully queue
 ```
-
-## For Humans
-
-Add `--text` to any command for readable output instead of JSON.
-
-```bash
-typefully drafts --text
-typefully recent --text --since 2025-01-01
-typefully get 12345 --text
-```
-
-**Other handy features:**
-
-- `typefully open 12345` -- open a draft in your browser
-- `typefully recent --format csv` -- export published posts to CSV
-- `typefully config init` -- guided first-time setup
 
 **Shell completions:**
 
 ```bash
 typefully completions install   # auto-detects your shell, updates rc file
-typefully completions show      # print raw script (for manual setup)
 ```
 
 ## For Agents
 
-Every command writes structured JSON. Success to stdout, errors to stderr. Parse with `jq`, pipe to other tools, or consume directly from an LLM agent.
+Every command supports `--json` for structured output. Pair with `--quiet` to suppress stderr status messages.
+
+```bash
+# JSON output mode
+typefully drafts --json --quiet
+
+# Extract draft IDs
+typefully drafts --json | jq '.data.results[].id'
+
+# Batch create and log results
+typefully batch posts.txt --json --output results.json
+```
+
+To make JSON the default (no need for `--json` every time):
+
+```bash
+typefully config set output_format json
+```
+
+<details>
+<summary>Output contract and error codes</summary>
 
 ### Output contract
 
@@ -112,27 +126,7 @@ When some operations succeed and some fail (exit 3):
 
 When all fail (exit 2): nothing on stdout, `all_failed` on stderr.
 
-### Common patterns
-
-```bash
-# Suppress status messages, keep errors
-typefully accounts --quiet 2>/dev/null
-
-# Extract draft IDs
-typefully drafts | jq '.data.results[].id'
-
-# Get error hint on failure
-typefully me 2>/tmp/err.json || jq '.error.hint' /tmp/err.json
-
-# Batch create and log results
-typefully batch posts.txt --output results.json
-```
-
-### Flags for agents
-
-- `--quiet` -- suppress stderr status messages (errors still shown)
-- `--api-key KEY` -- pass API key directly (skips config/env lookup)
-- `--account NAME` -- target a specific account (accepts name, username, or numeric ID)
+</details>
 
 ## Auth
 
@@ -154,7 +148,9 @@ typefully config set onepassword_item "Typefully API"
 
 ## Commands
 
-All account-scoped commands accept `--api-key`, `--account`, `--text`, `--quiet`.
+Human-readable output by default. Add `--json` to any command for structured JSON.
+
+All account-scoped commands accept `--api-key`, `--account`, `--json`, `--quiet`.
 
 | Command | Description |
 |---------|-------------|
@@ -167,27 +163,38 @@ All account-scoped commands accept `--api-key`, `--account`, `--text`, `--quiet`
 | `open ID` | Open a draft in the browser |
 | `update ID ["text"]` | Edit a draft (use `===` to separate thread posts) |
 | `delete ID [ID ...]` | Delete one or more drafts |
-| `drafts` | List drafts (`--status`, `--tag`, `--limit 1-50`, `--offset`, `--order`) |
-| `recent` | Published posts (`-n 1-50`, `--since`, `--until`, `--format csv`) |
-| `upload FILE` | Upload media, returns media ID (`--no-wait`, `--timeout`) |
-| `media-status ID` | Check processing status of uploaded media |
 | `publish ID` | Publish a draft immediately |
 | `schedule ID` | Schedule a draft (`--time ISO\|next`, default: next) |
-| `analytics` | Post analytics: impressions, engagement (`--platform`, `--start-date`, `--end-date`) |
-| `queue` | View posting queue with scheduled slots (`--start-date`, `--end-date`) |
-| `queue-schedule get\|set` | Get or set queue posting times (`--rules` for set) |
+| `drafts` | List drafts (`--status`, `--tag`, `--limit`, `--offset`, `--order`) |
+| `recent` | Published posts (`-n`, `--since`, `--until`, `--format csv`) |
+| `analytics` | Post analytics (`--platform`, `--start-date`, `--end-date`, `--include-replies`) |
+| `queue` | View posting queue (`--start-date`, `--end-date`) |
+| `queue-schedule get\|set` | Get or set posting times (`--rules` for set) |
+| `upload FILE` | Upload media (`--no-wait`, `--timeout`) |
+| `media-status ID` | Check media processing status |
 | `linkedin-resolve URL` | Resolve LinkedIn company URL to @mention syntax |
-| `tags` | List tags (`--limit 1-50`, `--offset`) |
+| `tags` | List tags (`--limit`, `--offset`) |
 | `tag-create "name"` | Create a tag (usually auto-created via `--tag`) |
 | `batch FILE` | Batch create from text file (`--dry-run`, `--output`, `--schedule`, `--tag`) |
-| `config set KEY VALUE` | Set config (api_key, default_account, onepassword_item) |
+| `config set KEY VALUE` | Set config (api_key, default_account, output_format, onepassword_item) |
 | `config init` | Interactive first-time setup |
 | `config show` | Show config (secrets redacted) |
 | `config path` | Print config file path |
 | `completions install` | Auto-install shell completions (bash/zsh/fish) |
 | `completions show` | Print raw completion script |
 
-**Draft options:** `--schedule ISO|next|now`, `--tag SLUG` (repeatable, auto-created), `--title`, `--media ID`, `--share`, `--reply-to URL`, `--scratchpad`, `--qrt URL`, `--threadify`, `--auto-retweet/--no-auto-retweet`, `--auto-plug/--no-auto-plug`, `--linkedin`, `--threads`, `--bluesky`, `--mastodon`, `--all` (all connected platforms), `--file` (read from file), `--community ID` (X community)
+### Platforms
+
+| Platform | Flag |
+|----------|------|
+| X (Twitter) | Always enabled |
+| LinkedIn | `--linkedin` |
+| Threads | `--threads` |
+| Bluesky | `--bluesky` |
+| Mastodon | `--mastodon` |
+| All connected | `--all` |
+
+**Draft options:** `--schedule ISO|next|now`, `--tag SLUG` (repeatable, auto-created), `--title`, `--media ID`, `--share`, `--reply-to URL`, `--scratchpad`, `--qrt URL`, `--threadify`, `--auto-retweet/--no-auto-retweet`, `--auto-plug/--no-auto-plug`, `--file` (read from file), `--community ID` (X community)
 
 **Update options:** all draft options plus `--append` (add posts to existing thread)
 
@@ -213,6 +220,16 @@ Another standalone draft
 
 Supported metadata: `tag`, `schedule`, `title`, `scratchpad`, `media` (comma-separated IDs). See [docs/batch-format.md](docs/batch-format.md) for the full spec.
 
+## Troubleshooting
+
+**"No API key found"** -- Run `typefully config init` or set `TYPEFULLY_API_KEY` env var. Get your key from [typefully.com/settings/api](https://typefully.com/settings/api).
+
+**"Account not found"** -- Check available accounts with `typefully accounts`. Set a default with `typefully config set default_account YourAccount`.
+
+**"API returned 429"** -- Rate limited. The CLI auto-throttles batch operations, but if you're scripting rapid calls, add delays between requests.
+
+**"S3 upload failed"** -- Check file size and format. Supported: jpg, jpeg, png, webp, gif, mp4, mov, pdf.
+
 ## Configuration
 
 Config file: `~/.config/typefully/config.toml`
@@ -224,6 +241,7 @@ api_key = "tf_..."
 
 [defaults]
 account = "MyBrand"
+output_format = "text"   # or "json" for agent/script use
 ```
 
 ## Contributing
