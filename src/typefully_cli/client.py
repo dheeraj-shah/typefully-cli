@@ -256,6 +256,89 @@ class TypefullyClient:
             offset += page_size
         return results
 
+    # --- Analytics ---
+
+    def list_analytics(
+        self,
+        social_set_id: int,
+        platform: str = "x",
+        start_date: str = "",
+        end_date: str = "",
+        include_replies: bool = False,
+        limit: int = 50,
+        offset: int = 0,
+    ) -> dict:
+        """List post analytics for a platform."""
+        params: dict = {"limit": limit, "offset": offset}
+        if start_date:
+            params["start_date"] = start_date
+        if end_date:
+            params["end_date"] = end_date
+        if include_replies:
+            params["include_replies"] = "true"
+        return (
+            self._request(
+                "GET",
+                f"/social-sets/{social_set_id}/analytics/{platform}/posts",
+                params=params,
+            )
+            or {}
+        )
+
+    # --- Queue ---
+
+    def get_queue(
+        self,
+        social_set_id: int,
+        start_date: str = "",
+        end_date: str = "",
+    ) -> dict:
+        """Get queue timeline with scheduled drafts."""
+        params: dict = {}
+        if start_date:
+            params["start_date"] = start_date
+        if end_date:
+            params["end_date"] = end_date
+        return (
+            self._request("GET", f"/social-sets/{social_set_id}/queue", params=params)
+            or {}
+        )
+
+    def get_queue_schedule(self, social_set_id: int) -> dict:
+        """Get queue schedule rules (posting times/days)."""
+        return (
+            self._request("GET", f"/social-sets/{social_set_id}/queue/schedule")
+            or {}
+        )
+
+    def set_queue_schedule(self, social_set_id: int, rules: list) -> dict:
+        """Set queue schedule rules."""
+        return (
+            self._request(
+                "PUT",
+                f"/social-sets/{social_set_id}/queue/schedule",
+                json={"rules": rules},
+            )
+            or {}
+        )
+
+    # --- LinkedIn ---
+
+    def resolve_linkedin_org(
+        self,
+        social_set_id: int,
+        organization_url: str,
+    ) -> dict:
+        """Resolve a LinkedIn company URL to mention syntax."""
+        return (
+            self._request(
+                "GET",
+                f"/social-sets/{social_set_id}/linkedin/organizations/resolve",
+                params={"organization_url": organization_url},
+            )
+            or {}
+        )
+
     # --- Rate-limited batch operations ---
 
     def rate_delay(self) -> None:

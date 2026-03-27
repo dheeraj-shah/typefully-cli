@@ -571,3 +571,258 @@ class TestDeletePartialFailure:
         assert len(errors) == 1
         assert errors[0]["error"]["code"] == "partial_failure"
         assert errors[0]["error"]["status"] == 3
+
+
+# ---------------------------------------------------------------------------
+# Helper: patch TypefullyClient so __enter__ returns the mock client itself
+# ---------------------------------------------------------------------------
+
+def _patch_client(mock_config):
+    """Return a (config_patch, client_patch_cls) context-manager pair.
+
+    Usage::
+
+        with _config_patch(mock_config):
+            with _client_patch() as MockClient:
+                client = MockClient.return_value
+                client.resolve_account.return_value = 1
+                ...
+    """
+
+
+def _make_client_mock(MockClient):
+    """Wire up MockClient so that ``with TypefullyClient(...) as c`` works and
+    methods are accessible on the same object returned by the constructor."""
+    from unittest.mock import MagicMock
+    inst = MockClient.return_value
+    inst.__enter__ = MagicMock(return_value=inst)
+    inst.__exit__ = MagicMock(return_value=False)
+    inst.get_social_sets.return_value = [{"id": 1, "username": "TestBrand"}]
+    inst.resolve_account.return_value = 1
+    return inst
+
+
+class TestAnalytics:
+    def test_analytics_json(self, runner, mock_config):
+        mock_data = {
+            "results": [
+                {"id": 1, "text": "Hello", "impressions": 100, "likes": 10,
+                 "published_at": "2026-01-01"}
+            ]
+        }
+        with patch("typefully_cli.config._config_path", return_value=mock_config):
+            with patch("typefully_cli.cli.TypefullyClient") as MockClient:
+                client = _make_client_mock(MockClient)
+                client.list_analytics.return_value = mock_data
+                result = runner.invoke(cli, ["analytics", "--start-date", "2026-01-01"])
+        assert result.exit_code == 0
+        data = json.loads(result.output)
+        assert data["ok"] is True
+
+    def test_analytics_invalid_date(self, runner, mock_config):
+        with patch("typefully_cli.config._config_path", return_value=mock_config):
+            with patch("typefully_cli.cli.TypefullyClient") as MockClient:
+                _make_client_mock(MockClient)
+                result = runner.invoke(cli, ["analytics", "--start-date", "bad-date"])
+        assert result.exit_code == 1
+
+
+class TestQueue:
+    def test_queue_json(self, runner, mock_config):
+        mock_data = {
+            "slots": [
+                {"time": "2026-01-01T09:00:00",
+                 "draft": {"id": 1, "preview": "Hello"}}
+            ]
+        }
+        with patch("typefully_cli.config._config_path", return_value=mock_config):
+            with patch("typefully_cli.cli.TypefullyClient") as MockClient:
+                client = _make_client_mock(MockClient)
+                client.get_queue.return_value = mock_data
+                result = runner.invoke(cli, ["queue"])
+        assert result.exit_code == 0
+        data = json.loads(result.output)
+        assert data["ok"] is True
+
+
+class TestQueueSchedule:
+    def test_get_schedule(self, runner, mock_config):
+        mock_data = {"rules": [{"h": 9, "m": 30, "days": ["mon", "wed"]}]}
+        with patch("typefully_cli.config._config_path", return_value=mock_config):
+            with patch("typefully_cli.cli.TypefullyClient") as MockClient:
+                client = _make_client_mock(MockClient)
+                client.get_queue_schedule.return_value = mock_data
+                result = runner.invoke(cli, ["queue-schedule", "get"])
+        assert result.exit_code == 0
+        data = json.loads(result.output)
+        assert data["ok"] is True
+
+    def test_set_schedule(self, runner, mock_config):
+        rules_json = '[{"h":9,"m":30,"days":["mon","wed"]}]'
+        mock_data = {"rules": [{"h": 9, "m": 30, "days": ["mon", "wed"]}]}
+        with patch("typefully_cli.config._config_path", return_value=mock_config):
+            with patch("typefully_cli.cli.TypefullyClient") as MockClient:
+                client = _make_client_mock(MockClient)
+                client.set_queue_schedule.return_value = mock_data
+                result = runner.invoke(cli, ["queue-schedule", "set", "--rules", rules_json])
+        assert result.exit_code == 0
+
+    def test_set_schedule_missing_rules(self, runner, mock_config):
+        with patch("typefully_cli.config._config_path", return_value=mock_config):
+            with patch("typefully_cli.cli.TypefullyClient") as MockClient:
+                _make_client_mock(MockClient)
+                result = runner.invoke(cli, ["queue-schedule", "set"])
+        assert result.exit_code == 1
+
+    def test_set_schedule_invalid_json(self, runner, mock_config):
+        with patch("typefully_cli.config._config_path", return_value=mock_config):
+            with patch("typefully_cli.cli.TypefullyClient") as MockClient:
+                _make_client_mock(MockClient)
+                result = runner.invoke(cli, ["queue-schedule", "set", "--rules", "not json"])
+        assert result.exit_code == 1
+
+
+class TestLinkedInResolve:
+    def test_resolve_json(self, runner, mock_config):
+        mock_data = {
+            "name": "Typefully",
+            "mention_text": "@[Typefully](urn:li:organization:86779668)",
+        }
+        with patch("typefully_cli.config._config_path", return_value=mock_config):
+            with patch("typefully_cli.cli.TypefullyClient") as MockClient:
+                client = _make_client_mock(MockClient)
+                client.resolve_linkedin_org.return_value = mock_data
+                result = runner.invoke(
+                    cli,
+                    ["linkedin-resolve", "https://linkedin.com/company/typefully"],
+                )
+        assert result.exit_code == 0
+        data = json.loads(result.output)
+        assert data["ok"] is True
+
+
+class TestPublish:
+    def test_publish_json(self, runner, mock_config):
+        mock_data = {"id": 123, "status": "published"}
+        with patch("typefully_cli.config._config_path", return_value=mock_config):
+            with patch("typefully_cli.cli.TypefullyClient") as MockClient:
+                client = _make_client_mock(MockClient)
+                client.update_draft.return_value = mock_data
+                result = runner.invoke(cli, ["publish", "123"])
+        assert result.exit_code == 0
+        # Verify it called update_draft with publish_at=now
+        client.update_draft.assert_called_once_with(1, "123", {"publish_at": "now"})
+
+
+class TestScheduleCmd:
+    def test_schedule_default_next(self, runner, mock_config):
+        mock_data = {"id": 123, "status": "scheduled"}
+        with patch("typefully_cli.config._config_path", return_value=mock_config):
+            with patch("typefully_cli.cli.TypefullyClient") as MockClient:
+                client = _make_client_mock(MockClient)
+                client.update_draft.return_value = mock_data
+                result = runner.invoke(cli, ["schedule", "123"])
+        assert result.exit_code == 0
+        client.update_draft.assert_called_once_with(
+            1, "123", {"publish_at": "next-free-slot"}
+        )
+
+    def test_schedule_specific_time(self, runner, mock_config):
+        mock_data = {"id": 123, "status": "scheduled"}
+        with patch("typefully_cli.config._config_path", return_value=mock_config):
+            with patch("typefully_cli.cli.TypefullyClient") as MockClient:
+                client = _make_client_mock(MockClient)
+                client.update_draft.return_value = mock_data
+                result = runner.invoke(
+                    cli,
+                    ["schedule", "123", "--time", "2026-04-01T10:00:00Z"],
+                )
+        assert result.exit_code == 0
+        client.update_draft.assert_called_once_with(
+            1, "123", {"publish_at": "2026-04-01T10:00:00Z"}
+        )
+
+
+class TestMediaStatus:
+    def test_media_status_json(self, runner, mock_config):
+        mock_data = {
+            "id": "abc", "status": "ready",
+            "url": "https://example.com/media.jpg",
+        }
+        with patch("typefully_cli.config._config_path", return_value=mock_config):
+            with patch("typefully_cli.cli.TypefullyClient") as MockClient:
+                client = _make_client_mock(MockClient)
+                client.get_media.return_value = mock_data
+                result = runner.invoke(cli, ["media-status", "abc"])
+        assert result.exit_code == 0
+        data = json.loads(result.output)
+        assert data["ok"] is True
+
+
+class TestDraftFileInput:
+    def test_draft_from_file(self, runner, mock_config, tmp_path):
+        post_file = tmp_path / "post.txt"
+        post_file.write_text("Hello from file")
+        mock_data = {"id": 1, "status": "draft"}
+        with patch("typefully_cli.config._config_path", return_value=mock_config):
+            with patch("typefully_cli.cli.TypefullyClient") as MockClient:
+                client = _make_client_mock(MockClient)
+                client.ensure_tags.return_value = []
+                client.create_draft.return_value = mock_data
+                result = runner.invoke(cli, ["draft", "--file", str(post_file)])
+        assert result.exit_code == 0
+
+    def test_draft_no_text_no_file(self, runner, mock_config):
+        with patch("typefully_cli.config._config_path", return_value=mock_config):
+            with patch("typefully_cli.cli.TypefullyClient") as MockClient:
+                _make_client_mock(MockClient)
+                result = runner.invoke(cli, ["draft"])
+        assert result.exit_code == 1
+
+
+class TestAllPlatformsFlag:
+    def test_draft_all_platforms(self, runner, mock_config):
+        mock_data = {"id": 1, "status": "draft"}
+        ss_data = {
+            "id": 1,
+            "platforms": {"x": {}, "linkedin": {}, "threads": {}},
+        }
+        with patch("typefully_cli.config._config_path", return_value=mock_config):
+            with patch("typefully_cli.cli.TypefullyClient") as MockClient:
+                client = _make_client_mock(MockClient)
+                client.get_social_set.return_value = ss_data
+                client.ensure_tags.return_value = []
+                client.create_draft.return_value = mock_data
+                result = runner.invoke(cli, ["draft", "Hello world", "--all"])
+        assert result.exit_code == 0
+        # Verify create_draft was called with linkedin and threads enabled
+        call_args = client.create_draft.call_args
+        payload = call_args[0][1]
+        assert "linkedin" in payload["platforms"]
+        assert "threads" in payload["platforms"]
+
+
+class TestAppendFlag:
+    def test_update_append(self, runner, mock_config):
+        existing_draft = {
+            "id": 123,
+            "platforms": {
+                "x": {"enabled": True, "posts": [{"text": "Original post"}]}
+            },
+        }
+        updated_data = {"id": 123, "status": "draft"}
+        with patch("typefully_cli.config._config_path", return_value=mock_config):
+            with patch("typefully_cli.cli.TypefullyClient") as MockClient:
+                client = _make_client_mock(MockClient)
+                client.get_draft.return_value = existing_draft
+                client.update_draft.return_value = updated_data
+                result = runner.invoke(
+                    cli, ["update", "123", "New post", "--append"]
+                )
+        assert result.exit_code == 0
+        call_args = client.update_draft.call_args
+        payload = call_args[0][2]
+        posts = payload["platforms"]["x"]["posts"]
+        assert len(posts) == 2
+        assert posts[0]["text"] == "Original post"
+        assert posts[1]["text"] == "New post"

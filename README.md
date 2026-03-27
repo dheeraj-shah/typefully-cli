@@ -169,7 +169,14 @@ All account-scoped commands accept `--api-key`, `--account`, `--text`, `--quiet`
 | `delete ID [ID ...]` | Delete one or more drafts |
 | `drafts` | List drafts (`--status`, `--tag`, `--limit 1-50`, `--offset`, `--order`) |
 | `recent` | Published posts (`-n 1-50`, `--since`, `--until`, `--format csv`) |
-| `upload FILE` | Upload media, returns media ID |
+| `upload FILE` | Upload media, returns media ID (`--no-wait`, `--timeout`) |
+| `media-status ID` | Check processing status of uploaded media |
+| `publish ID` | Publish a draft immediately |
+| `schedule ID` | Schedule a draft (`--time ISO\|next`, default: next) |
+| `analytics` | Post analytics: impressions, engagement (`--platform`, `--start-date`, `--end-date`) |
+| `queue` | View posting queue with scheduled slots (`--start-date`, `--end-date`) |
+| `queue-schedule get\|set` | Get or set queue posting times (`--rules` for set) |
+| `linkedin-resolve URL` | Resolve LinkedIn company URL to @mention syntax |
 | `tags` | List tags (`--limit 1-50`, `--offset`) |
 | `tag-create "name"` | Create a tag (usually auto-created via `--tag`) |
 | `batch FILE` | Batch create from text file (`--dry-run`, `--output`, `--schedule`, `--tag`) |
@@ -180,7 +187,9 @@ All account-scoped commands accept `--api-key`, `--account`, `--text`, `--quiet`
 | `completions install` | Auto-install shell completions (bash/zsh/fish) |
 | `completions show` | Print raw completion script |
 
-**Draft options:** `--schedule ISO|next|now`, `--tag SLUG` (repeatable, auto-created), `--title`, `--media ID`, `--share`, `--reply-to URL`, `--scratchpad`, `--qrt URL`, `--threadify`, `--auto-retweet/--no-auto-retweet`, `--auto-plug/--no-auto-plug`, `--linkedin`, `--threads`, `--bluesky`, `--mastodon`
+**Draft options:** `--schedule ISO|next|now`, `--tag SLUG` (repeatable, auto-created), `--title`, `--media ID`, `--share`, `--reply-to URL`, `--scratchpad`, `--qrt URL`, `--threadify`, `--auto-retweet/--no-auto-retweet`, `--auto-plug/--no-auto-plug`, `--linkedin`, `--threads`, `--bluesky`, `--mastodon`, `--all` (all connected platforms), `--file` (read from file), `--community ID` (X community)
+
+**Update options:** all draft options plus `--append` (add posts to existing thread)
 
 Run `typefully COMMAND --help` for full option details.
 

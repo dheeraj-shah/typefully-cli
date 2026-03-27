@@ -33,6 +33,7 @@ def upload_media(
     social_set_id: int,
     file_path: str,
     console: Console,
+    timeout: int = 60,
 ) -> dict:
     """Upload a media file and poll until ready. Returns {media_id, status}."""
     if not os.path.isfile(file_path):
@@ -54,10 +55,11 @@ def upload_media(
 
     # Step 3: Poll for processing
     console.status("Processing...")
+    max_polls = timeout // 2
     with console.progress("Processing media...") as progress:
-        task = progress.add_task("Processing...", total=30)
+        task = progress.add_task("Processing...", total=max_polls)
         data = {}
-        for _ in range(30):
+        for _ in range(max_polls):
             import time
 
             time.sleep(2)

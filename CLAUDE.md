@@ -2,14 +2,15 @@
 
 ## Overview
 
-Python CLI wrapping the Typefully API v2. Agent-first design: JSON output by default, structured errors on stderr, deterministic behavior. 17 Click commands for drafts, threads, batch, media, tags, accounts, config.
+Python CLI wrapping the Typefully API v2. Agent-first design: JSON output by default, structured errors on stderr, deterministic behavior. 24 Click commands for drafts, threads, batch, media, analytics, queue, LinkedIn, tags, accounts, config, completions.
 
 ## Architecture
 
 ```
 src/typefully_cli/
-  cli.py        -- 17 Click commands, shared options, error handler, payload builder
+  cli.py        -- 24 Click commands, shared options, error handler, payload builder
   client.py     -- httpx wrapper over Typefully API v2 (rate-limited, account resolution)
+  completions.py -- Shell completions install/show (bash/zsh/fish)
   auth.py       -- API key resolution chain: flag > env > config > 1Password
   config.py     -- TOML config at ~/.config/typefully/config.toml
   console.py    -- stderr output (status, warnings, errors) via Rich
@@ -26,6 +27,7 @@ src/typefully_cli/
 - **Input validation:** Dates via `_validate_date()`, limits via `_validate_limit()`, both raise `TypefullyError(code="invalid_input")` which exits 1.
 - **Partial failure:** Delete and batch loops catch per-item errors. `_handle_multi_result()` handles the 3-branch contract (all succeed / partial / all fail).
 - **Error sanitization:** `APIError.user_message` property strips raw upstream bodies from stdout payloads. Full details stay on stderr.
+- **API parity:** Tracks all Typefully API v2 endpoints including analytics, queue management, and LinkedIn org resolution.
 
 ## Dev setup
 

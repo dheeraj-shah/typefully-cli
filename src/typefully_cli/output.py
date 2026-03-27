@@ -186,3 +186,79 @@ def print_delete_result(result: dict) -> None:
 def print_upload_result(data: dict) -> None:
     _console.print(f"  Media ID: {data.get('media_id', '?')}")
     _console.print(f"  Status:   {data.get('status', '?')}")
+
+
+def print_analytics(data: dict) -> None:
+    results = data.get("results", [])
+    if not results:
+        _console.print("  (no analytics data)")
+        return
+    table = Table(title="Post Analytics")
+    table.add_column("Post ID")
+    table.add_column("Published", style="dim")
+    table.add_column("Text", max_width=50)
+    table.add_column("Impressions", justify="right")
+    table.add_column("Likes", justify="right")
+    table.add_column("Replies", justify="right")
+    table.add_column("Reposts", justify="right")
+    table.add_column("Clicks", justify="right")
+    for p in results:
+        text = _esc(p.get("text", "")[:50])
+        table.add_row(
+            str(p.get("id", "?")),
+            str(p.get("published_at", "?"))[:10],
+            text,
+            str(p.get("impressions", 0)),
+            str(p.get("likes", 0)),
+            str(p.get("comments", 0)),
+            str(p.get("reposts", p.get("shares", 0))),
+            str(p.get("link_clicks", p.get("clicks", 0))),
+        )
+    _console.print(table)
+
+
+def print_queue(data: dict) -> None:
+    slots = data.get("slots", data.get("results", []))
+    if not slots:
+        _console.print("  (empty queue)")
+        return
+    for slot in slots:
+        time_str = slot.get("time", slot.get("scheduled_date", "?"))
+        draft = slot.get("draft")
+        if draft:
+            draft_id = draft.get("id", "?")
+            preview = draft.get("preview", "")[:60]
+            _console.print(f"  [{_esc(str(time_str)[:16])}] {_esc(preview)} (ID: {draft_id})")
+        else:
+            _console.print(f"  [{_esc(str(time_str)[:16])}] (empty slot)")
+
+
+def print_queue_schedule(data: dict) -> None:
+    rules = data.get("rules", [])
+    if not rules:
+        _console.print("  (no schedule rules)")
+        return
+    _console.print("  Queue schedule:")
+    for rule in rules:
+        hour = rule.get("h", 0)
+        minute = rule.get("m", 0)
+        days = rule.get("days", [])
+        days_str = ", ".join(days) if days else "every day"
+        _console.print(f"    {hour:02d}:{minute:02d} -- {_esc(days_str)}")
+
+
+def print_linkedin_resolve(data: dict) -> None:
+    mention = data.get("mention_text", "")
+    name = data.get("name", "?")
+    _console.print(f"  Organization: {_esc(name)}")
+    if mention:
+        _console.print(f"  Mention text: {_esc(mention)}")
+    _console.print("  (Copy the mention text into your LinkedIn post)")
+
+
+def print_media_status(data: dict) -> None:
+    _console.print(f"  Media ID: {data.get('media_id', data.get('id', '?'))}")
+    _console.print(f"  Status:   {data.get('status', '?')}")
+    url = data.get("url", "")
+    if url:
+        _console.print(f"  URL:      {url}")
