@@ -34,6 +34,8 @@ class Config:
     onepassword_item: str = ""
     default_account: str = ""
     output_format: str = "text"
+    default_platforms: str = ""
+    timezone: str = ""
     _path: Path = field(default_factory=_config_path)
 
     @classmethod
@@ -50,6 +52,8 @@ class Config:
         defaults = data.get("defaults", {})
         cfg.default_account = defaults.get("account", "")
         cfg.output_format = defaults.get("output_format", "text")
+        cfg.default_platforms = defaults.get("platforms", "")
+        cfg.timezone = defaults.get("timezone", "")
         return cfg
 
     def save(self) -> None:
@@ -68,6 +72,10 @@ class Config:
             lines.append(f'account = "{_toml_escape(self.default_account)}"')
         if self.output_format:
             lines.append(f'output_format = "{_toml_escape(self.output_format)}"')
+        if self.default_platforms:
+            lines.append(f'platforms = "{_toml_escape(self.default_platforms)}"')
+        if self.timezone:
+            lines.append(f'timezone = "{_toml_escape(self.timezone)}"')
         lines.append("")
         self._path.write_text("\n".join(lines))
         os.chmod(self._path, 0o600)
@@ -84,12 +92,46 @@ class Config:
         if self.default_account:
             d["defaults"]["account"] = self.default_account
         d["defaults"]["output_format"] = self.output_format
+        if self.default_platforms:
+            d["defaults"]["platforms"] = self.default_platforms
+        if self.timezone:
+            d["defaults"]["timezone"] = self.timezone
         return d
 
 
 # --- Config set/show helpers ---
 
-_VALID_KEYS = {"api_key", "default_account", "onepassword_item", "output_format"}
+_VALID_KEYS = {
+    "api_key", "default_account", "onepassword_item", "output_format",
+    "default_platforms", "timezone",
+}
+
+_KNOWN_PLATFORMS = {"x", "linkedin", "threads", "bluesky", "mastodon"}
+
+
+def _validate_timezone(tz_name: str) -> str:
+    """Validate a timezone name. Returns canonical name or raises."""
+    from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
+    try:
+        ZoneInfo(tz_name)
+    except (ZoneInfoNotFoundError, KeyError):
+        raise ValueError(
+            f"Unknown timezone: '{tz_name}'. "
+            f"Use IANA names like 'Asia/Kolkata', 'US/Eastern', 'Europe/London'."
+        )
+    return tz_name
+
+
+def _validate_platforms(platforms_str: str) -> str:
+    """Validate a comma-separated platforms string. Returns cleaned string or raises."""
+    parts = [p.strip().lower() for p in platforms_str.split(",") if p.strip()]
+    unknown = set(parts) - _KNOWN_PLATFORMS
+    if unknown:
+        raise ValueError(
+            f"Unknown platform(s): {', '.join(sorted(unknown))}. "
+            f"Valid: {', '.join(sorted(_KNOWN_PLATFORMS))}"
+        )
+    return ",".join(parts)
 
 
 def config_set(cfg: Config, key: str, value: str) -> dict:
@@ -104,6 +146,12 @@ def config_set(cfg: Config, key: str, value: str) -> dict:
         cfg.onepassword_item = value
     elif key == "output_format":
         cfg.output_format = value
+    elif key == "default_platforms":
+        value = _validate_platforms(value)
+        cfg.default_platforms = value
+    elif key == "timezone":
+        value = _validate_timezone(value)
+        cfg.timezone = value
     cfg.save()
     display_value = _redact(value) if key == "api_key" else value
     return {"key": key, "value": display_value}
