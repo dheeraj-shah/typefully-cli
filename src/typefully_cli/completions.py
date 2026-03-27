@@ -15,6 +15,8 @@ from typefully_cli.exceptions import TypefullyError
 
 SHELL_CHOICES = ("bash", "zsh", "fish")
 
+ALIAS_LINE = 'alias tf=typefully'
+
 SCRIPT_PATHS = {
     "bash": Path.home() / ".typefully-complete.bash",
     "zsh": Path.home() / ".typefully-complete.zsh",
@@ -107,20 +109,35 @@ def completions_install(shell_name: str | None):
         script_path.write_text(script)
 
         rc_updated = False
+        alias_added = False
         rc_path_str = ""
 
         if shell in RC_PATHS:
             rc_path = RC_PATHS[shell]
             rc_path_str = str(rc_path)
             source = _source_line(shell)
+            additions = []
             if not _rc_already_sourced(rc_path, source):
-                with open(rc_path, "a") as f:
-                    f.write(f"\n{source}\n")
+                additions.append(source)
                 rc_updated = True
+            if not _rc_already_sourced(rc_path, ALIAS_LINE):
+                additions.append(ALIAS_LINE)
+                alias_added = True
+            if additions:
+                with open(rc_path, "a") as f:
+                    f.write("\n" + "\n".join(additions) + "\n")
+        elif shell == "fish":
+            # Fish alias: write a function file
+            fish_fn = Path.home() / ".config" / "fish" / "functions" / "tf.fish"
+            if not fish_fn.exists():
+                fish_fn.parent.mkdir(parents=True, exist_ok=True)
+                fish_fn.write_text("function tf\n    typefully $argv\nend\n")
+                alias_added = True
 
         result = {
             "shell": shell,
             "script_path": str(script_path),
+            "alias_added": alias_added,
         }
         if rc_path_str:
             result["rc_path"] = rc_path_str
@@ -132,11 +149,11 @@ def completions_install(shell_name: str | None):
             console.status(f"Completions installed to {script_path}")
         else:
             rc = RC_PATHS[shell]
-            if rc_updated:
-                console.status(f"Completions installed. Restart your shell or run: source {rc}")
+            if rc_updated or alias_added:
+                console.status(f"Completions + alias 'tf' installed. Restart your shell or run: source {rc}")
             else:
                 console.status(
-                    f"Completions installed. Source line already in {rc}."
+                    f"Completions + alias already in {rc}."
                 )
 
     except TypefullyError as e:
