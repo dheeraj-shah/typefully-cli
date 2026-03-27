@@ -88,7 +88,7 @@ class TestBatchDryRun:
     def test_dry_run_outputs_json(self, runner, tmp_path):
         batch_file = tmp_path / "posts.txt"
         batch_file.write_text("tag: test\nFirst post\n---\nSecond post")
-        result = runner.invoke(cli, ["batch", str(batch_file), "--dry-run"])
+        result = runner.invoke(cli, ["batch", str(batch_file), "--dry-run", "--json"])
         assert result.exit_code == 0
         data = json.loads(result.output)
         assert data["ok"] is True
@@ -98,7 +98,7 @@ class TestBatchDryRun:
     def test_dry_run_with_thread(self, runner, tmp_path):
         batch_file = tmp_path / "posts.txt"
         batch_file.write_text("Post 1\n===\nPost 2")
-        result = runner.invoke(cli, ["batch", str(batch_file), "--dry-run"])
+        result = runner.invoke(cli, ["batch", str(batch_file), "--dry-run", "--json"])
         data = json.loads(result.output)
         entries = data["data"]["entries"]
         assert len(entries) == 1
@@ -211,7 +211,7 @@ class TestCleanErrorPayloads:
         with patch("typefully_cli.cli._get_client_and_console", return_value=(
             mock_client, Console(quiet=True), Config(default_account="test")
         )):
-            result = runner.invoke(cli, ["delete", "id1", "id2"])
+            result = runner.invoke(cli, ["delete", "id1", "id2", "--json"])
 
         assert result.exit_code == 3
         jsons = []
@@ -537,7 +537,7 @@ class TestDeletePartialFailure:
     def test_all_succeed_exit_0(self, runner):
         client, console, config = self._mock_client(["ok", "ok"])
         with patch("typefully_cli.cli._get_client_and_console", return_value=(client, console, config)):
-            result = runner.invoke(cli, ["delete", "id1", "id2"])
+            result = runner.invoke(cli, ["delete", "id1", "id2", "--json"])
         assert result.exit_code == 0
         jsons = self._parse_json_lines(result.output)
         success = [j for j in jsons if j.get("ok") is True]
@@ -547,7 +547,7 @@ class TestDeletePartialFailure:
     def test_all_fail_exit_2(self, runner):
         client, console, config = self._mock_client(["fail", "fail"])
         with patch("typefully_cli.cli._get_client_and_console", return_value=(client, console, config)):
-            result = runner.invoke(cli, ["delete", "id1", "id2"])
+            result = runner.invoke(cli, ["delete", "id1", "id2", "--json"])
         assert result.exit_code == 2
         jsons = self._parse_json_lines(result.output)
         # Only error JSON, no success JSON
@@ -560,7 +560,7 @@ class TestDeletePartialFailure:
     def test_partial_fail_exit_3(self, runner):
         client, console, config = self._mock_client(["ok", "fail"])
         with patch("typefully_cli.cli._get_client_and_console", return_value=(client, console, config)):
-            result = runner.invoke(cli, ["delete", "id1", "id2"])
+            result = runner.invoke(cli, ["delete", "id1", "id2", "--json"])
         assert result.exit_code == 3
         jsons = self._parse_json_lines(result.output)
         # Both success data and error envelope
@@ -614,7 +614,7 @@ class TestAnalytics:
             with patch("typefully_cli.cli.TypefullyClient") as MockClient:
                 client = _make_client_mock(MockClient)
                 client.list_analytics.return_value = mock_data
-                result = runner.invoke(cli, ["analytics", "--start-date", "2026-01-01"])
+                result = runner.invoke(cli, ["analytics", "--start-date", "2026-01-01", "--json"])
         assert result.exit_code == 0
         data = json.loads(result.output)
         assert data["ok"] is True
@@ -639,7 +639,7 @@ class TestQueue:
             with patch("typefully_cli.cli.TypefullyClient") as MockClient:
                 client = _make_client_mock(MockClient)
                 client.get_queue.return_value = mock_data
-                result = runner.invoke(cli, ["queue"])
+                result = runner.invoke(cli, ["queue", "--json"])
         assert result.exit_code == 0
         data = json.loads(result.output)
         assert data["ok"] is True
@@ -652,7 +652,7 @@ class TestQueueSchedule:
             with patch("typefully_cli.cli.TypefullyClient") as MockClient:
                 client = _make_client_mock(MockClient)
                 client.get_queue_schedule.return_value = mock_data
-                result = runner.invoke(cli, ["queue-schedule", "get"])
+                result = runner.invoke(cli, ["queue-schedule", "get", "--json"])
         assert result.exit_code == 0
         data = json.loads(result.output)
         assert data["ok"] is True
@@ -694,7 +694,7 @@ class TestLinkedInResolve:
                 client.resolve_linkedin_org.return_value = mock_data
                 result = runner.invoke(
                     cli,
-                    ["linkedin-resolve", "https://linkedin.com/company/typefully"],
+                    ["linkedin-resolve", "https://linkedin.com/company/typefully", "--json"],
                 )
         assert result.exit_code == 0
         data = json.loads(result.output)
@@ -753,7 +753,7 @@ class TestMediaStatus:
             with patch("typefully_cli.cli.TypefullyClient") as MockClient:
                 client = _make_client_mock(MockClient)
                 client.get_media.return_value = mock_data
-                result = runner.invoke(cli, ["media-status", "abc"])
+                result = runner.invoke(cli, ["media-status", "abc", "--json"])
         assert result.exit_code == 0
         data = json.loads(result.output)
         assert data["ok"] is True

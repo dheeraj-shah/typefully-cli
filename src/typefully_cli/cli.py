@@ -29,13 +29,14 @@ from typefully_cli.completions import completions
 
 
 def shared_options(f):
-    """Add --api-key, --account, --text, --quiet, --debug to a subcommand."""
+    """Add --api-key, --account, --text, --json, --quiet, --debug to a subcommand."""
 
     @click.option("--api-key", default=None, help="API key (overrides env/config)")
     @click.option(
         "--account", "-a", default=None, help="Account name, username, or numeric ID"
     )
-    @click.option("--text", "use_text", is_flag=True, help="Human-readable Rich output")
+    @click.option("--text", "use_text", is_flag=True, help="Human-readable output (default)")
+    @click.option("--json", "use_json", is_flag=True, help="JSON output for agents/scripts")
     @click.option("--quiet", "-q", is_flag=True, help="Suppress non-error stderr")
     @click.option("--debug", is_flag=True, hidden=True, help="Log HTTP requests to stderr")
     @wraps(f)
@@ -99,6 +100,16 @@ def _validate_limit(value: int, max_val: int = 50) -> int:
             hint=f"Limit must be between 1 and {max_val}",
         )
     return value
+
+
+def _resolve_text_mode(use_text: bool, use_json: bool, config: Config) -> bool:
+    """Resolve output mode: --json wins, then --text, then config, then default (text)."""
+    if use_json:
+        return False
+    if use_text:
+        return True
+    # Config default
+    return config.output_format != "json"
 
 
 def _output(data: Any, use_text: bool, text_fn: Any = None) -> None:
@@ -275,9 +286,10 @@ def config_init_cmd(**kwargs):
 @cli.command()
 @shared_options
 @error_handler
-def me(api_key, account, use_text, quiet, debug):
+def me(api_key, account, use_text, use_json, quiet, debug):
     """Show current authenticated user."""
     client, console, cfg = _get_client_and_console(api_key, quiet, debug=debug)
+    use_text = _resolve_text_mode(use_text, use_json, cfg)
     with client:
         data = client.me()
         _output(data, use_text, fmt.print_user)
@@ -289,9 +301,10 @@ def me(api_key, account, use_text, quiet, debug):
 @cli.command()
 @shared_options
 @error_handler
-def accounts(api_key, account, use_text, quiet, debug):
+def accounts(api_key, account, use_text, use_json, quiet, debug):
     """List connected social sets."""
     client, console, cfg = _get_client_and_console(api_key, quiet, debug=debug)
+    use_text = _resolve_text_mode(use_text, use_json, cfg)
     with client:
         sets = client.get_social_sets()
         if use_text:
@@ -307,9 +320,10 @@ def accounts(api_key, account, use_text, quiet, debug):
 @click.argument("name", required=False, default=None)
 @shared_options
 @error_handler
-def account_detail(name, api_key, account, use_text, quiet, debug):
+def account_detail(name, api_key, account, use_text, use_json, quiet, debug):
     """Show details for an account. NAME is optional (falls back to --account or config default)."""
     client, console, cfg = _get_client_and_console(api_key, quiet, debug=debug)
+    use_text = _resolve_text_mode(use_text, use_json, cfg)
     with client:
         ssid = _resolve_account_id(client, account, cfg, positional=name)
         data = client.get_social_set(ssid)
@@ -326,7 +340,7 @@ def account_detail(name, api_key, account, use_text, quiet, debug):
 @click.option("--format", "output_format", default=None, type=click.Choice(["csv"]), help="Output format")
 @shared_options
 @error_handler
-def recent(limit, since, until_date, output_format, api_key, account, use_text, quiet, debug):
+def recent(limit, since, until_date, output_format, api_key, account, use_text, use_json, quiet, debug):
     """List recently published posts."""
     _validate_limit(limit)
     since = _validate_date(since, "--since")
@@ -338,6 +352,7 @@ def recent(limit, since, until_date, output_format, api_key, account, use_text, 
             hint="--since must be before or equal to --until",
         )
     client, console, cfg = _get_client_and_console(api_key, quiet, debug=debug)
+    use_text = _resolve_text_mode(use_text, use_json, cfg)
     with client:
         ssid = _resolve_account_id(client, account, cfg)
         posts = client.list_recent(ssid, limit=limit, since=since, until=until_date)
@@ -379,7 +394,7 @@ def draft(
     text, input_file, schedule, tags, title, media, share, reply_to, scratchpad,
     qrt, threadify, auto_retweet, auto_plug,
     linkedin, threads, bluesky, mastodon, all_platforms, community,
-    api_key, account, use_text, quiet, debug,
+    api_key, account, use_text, use_json, quiet, debug,
 ):
     """Create a draft post."""
     if input_file:
@@ -391,6 +406,7 @@ def draft(
             hint="Pass text as argument or use --file",
         )
     client, console, cfg = _get_client_and_console(api_key, quiet, debug=debug)
+    use_text = _resolve_text_mode(use_text, use_json, cfg)
     with client:
         ssid = _resolve_account_id(client, account, cfg)
 
@@ -456,7 +472,7 @@ def thread(
     posts, schedule, tags, title, media, share, reply_to, scratchpad,
     qrt, auto_retweet, auto_plug,
     linkedin, threads, bluesky, mastodon, all_platforms, community,
-    api_key, account, use_text, quiet, debug,
+    api_key, account, use_text, use_json, quiet, debug,
 ):
     """Create a multi-post thread. Provide 2+ posts as separate arguments."""
     if len(posts) < 2:
@@ -468,6 +484,7 @@ def thread(
         sys.exit(1)
 
     client, console, cfg = _get_client_and_console(api_key, quiet, debug=debug)
+    use_text = _resolve_text_mode(use_text, use_json, cfg)
     with client:
         ssid = _resolve_account_id(client, account, cfg)
 
@@ -514,9 +531,10 @@ def thread(
 @click.argument("draft_id")
 @shared_options
 @error_handler
-def get(draft_id, api_key, account, use_text, quiet, debug):
+def get(draft_id, api_key, account, use_text, use_json, quiet, debug):
     """View a specific draft."""
     client, console, cfg = _get_client_and_console(api_key, quiet, debug=debug)
+    use_text = _resolve_text_mode(use_text, use_json, cfg)
     with client:
         ssid = _resolve_account_id(client, account, cfg)
         data = client.get_draft(ssid, draft_id)
@@ -530,9 +548,10 @@ def get(draft_id, api_key, account, use_text, quiet, debug):
 @click.argument("draft_id")
 @shared_options
 @error_handler
-def open_draft(draft_id, api_key, account, use_text, quiet, debug):
+def open_draft(draft_id, api_key, account, use_text, use_json, quiet, debug):
     """Open a draft in the browser."""
     client, console, cfg = _get_client_and_console(api_key, quiet, debug=debug)
+    use_text = _resolve_text_mode(use_text, use_json, cfg)
     with client:
         ssid = _resolve_account_id(client, account, cfg)
         data = client.get_draft(ssid, draft_id)
@@ -574,10 +593,11 @@ def open_draft(draft_id, api_key, account, use_text, quiet, debug):
 def update(
     draft_id, text, schedule, tags, title, share_flag, scratchpad,
     auto_retweet, auto_plug, media, append_posts,
-    api_key, account, use_text, quiet, debug,
+    api_key, account, use_text, use_json, quiet, debug,
 ):
     """Update an existing draft. Text supports === for thread post splitting."""
     client, console, cfg = _get_client_and_console(api_key, quiet, debug=debug)
+    use_text = _resolve_text_mode(use_text, use_json, cfg)
     with client:
         ssid = _resolve_account_id(client, account, cfg)
 
@@ -650,9 +670,10 @@ def update(
 @click.argument("ids", nargs=-1, required=True)
 @shared_options
 @error_handler
-def delete(ids, api_key, account, use_text, quiet, debug):
+def delete(ids, api_key, account, use_text, use_json, quiet, debug):
     """Delete one or more drafts."""
     client, console, cfg = _get_client_and_console(api_key, quiet, debug=debug)
+    use_text = _resolve_text_mode(use_text, use_json, cfg)
     with client:
         ssid = _resolve_account_id(client, account, cfg)
         deleted: list[str] = []
@@ -687,10 +708,11 @@ def delete(ids, api_key, account, use_text, quiet, debug):
 @click.option("--content-filter", default=None, help="Filter: original|repost")
 @shared_options
 @error_handler
-def drafts(draft_status, limit, offset, order, tag, content_filter, api_key, account, use_text, quiet, debug):
+def drafts(draft_status, limit, offset, order, tag, content_filter, api_key, account, use_text, use_json, quiet, debug):
     """List drafts with optional filters."""
     _validate_limit(limit)
     client, console, cfg = _get_client_and_console(api_key, quiet, debug=debug)
+    use_text = _resolve_text_mode(use_text, use_json, cfg)
     with client:
         ssid = _resolve_account_id(client, account, cfg)
         params: dict[str, Any] = {
@@ -717,10 +739,11 @@ def drafts(draft_status, limit, offset, order, tag, content_filter, api_key, acc
 @click.option("--offset", default=0, type=int)
 @shared_options
 @error_handler
-def tags(limit, offset, api_key, account, use_text, quiet, debug):
+def tags(limit, offset, api_key, account, use_text, use_json, quiet, debug):
     """List tags."""
     _validate_limit(limit)
     client, console, cfg = _get_client_and_console(api_key, quiet, debug=debug)
+    use_text = _resolve_text_mode(use_text, use_json, cfg)
     with client:
         ssid = _resolve_account_id(client, account, cfg)
         data = client.list_tags(ssid, limit=limit, offset=offset)
@@ -738,9 +761,10 @@ def tags(limit, offset, api_key, account, use_text, quiet, debug):
 @click.argument("name")
 @shared_options
 @error_handler
-def tag_create(name, api_key, account, use_text, quiet, debug):
+def tag_create(name, api_key, account, use_text, use_json, quiet, debug):
     """Create a tag."""
     client, console, cfg = _get_client_and_console(api_key, quiet, debug=debug)
+    use_text = _resolve_text_mode(use_text, use_json, cfg)
     with client:
         ssid = _resolve_account_id(client, account, cfg)
         data = client.create_tag(ssid, name)
@@ -760,9 +784,10 @@ def tag_create(name, api_key, account, use_text, quiet, debug):
               help="Media processing poll timeout in seconds")
 @shared_options
 @error_handler
-def upload(file_path, no_wait, poll_timeout, api_key, account, use_text, quiet, debug):
+def upload(file_path, no_wait, poll_timeout, api_key, account, use_text, use_json, quiet, debug):
     """Upload a media file and return its media ID."""
     client, console, cfg = _get_client_and_console(api_key, quiet, debug=debug)
+    use_text = _resolve_text_mode(use_text, use_json, cfg)
     with client:
         ssid = _resolve_account_id(client, account, cfg)
         if no_wait:
@@ -793,7 +818,7 @@ def upload(file_path, no_wait, poll_timeout, api_key, account, use_text, quiet, 
 @click.option("--output", "output_file", default=None, type=click.Path(), help="JSON results log")
 @shared_options
 @error_handler
-def batch(file_path, schedule, tags, share, dry_run, output_file, api_key, account, use_text, quiet, debug):
+def batch(file_path, schedule, tags, share, dry_run, output_file, api_key, account, use_text, use_json, quiet, debug):
     """Batch create drafts from a text file.
 
     File format: drafts separated by --- on its own line.
@@ -815,6 +840,10 @@ def batch(file_path, schedule, tags, share, dry_run, output_file, api_key, accou
 
     entries = parse_batch_file(content)
     merge_defaults(entries, default_schedule=schedule, default_tags=tags)
+
+    # Resolve text mode early (dry_run path doesn't call _get_client_and_console)
+    cfg_for_mode = Config.load()
+    use_text = _resolve_text_mode(use_text, use_json, cfg_for_mode)
 
     if dry_run:
         result = {"dry_run": True, "entries": [e.to_dict() for e in entries]}
@@ -898,12 +927,13 @@ def batch(file_path, schedule, tags, share, dry_run, output_file, api_key, accou
 @shared_options
 @error_handler
 def analytics(platform, start_date, end_date, include_replies, limit, offset,
-              api_key, account, use_text, quiet, debug):
+              api_key, account, use_text, use_json, quiet, debug):
     """List post analytics (impressions, engagement)."""
     _validate_limit(limit)
     start_date = _validate_date(start_date, "--start-date")
     end_date = _validate_date(end_date, "--end-date")
     client, console, cfg = _get_client_and_console(api_key, quiet, debug=debug)
+    use_text = _resolve_text_mode(use_text, use_json, cfg)
     with client:
         ssid = _resolve_account_id(client, account, cfg)
         data = client.list_analytics(
@@ -921,11 +951,12 @@ def analytics(platform, start_date, end_date, include_replies, limit, offset,
 @click.option("--end-date", default="", help="End date YYYY-MM-DD")
 @shared_options
 @error_handler
-def queue(start_date, end_date, api_key, account, use_text, quiet, debug):
+def queue(start_date, end_date, api_key, account, use_text, use_json, quiet, debug):
     """View the posting queue (scheduled slots and drafts)."""
     start_date = _validate_date(start_date, "--start-date")
     end_date = _validate_date(end_date, "--end-date")
     client, console, cfg = _get_client_and_console(api_key, quiet, debug=debug)
+    use_text = _resolve_text_mode(use_text, use_json, cfg)
     with client:
         ssid = _resolve_account_id(client, account, cfg)
         data = client.get_queue(ssid, start_date=start_date, end_date=end_date)
@@ -940,13 +971,14 @@ def queue(start_date, end_date, api_key, account, use_text, quiet, debug):
 @click.option("--rules", default=None, help="JSON array of schedule rules (for set)")
 @shared_options
 @error_handler
-def queue_schedule(action, rules, api_key, account, use_text, quiet, debug):
+def queue_schedule(action, rules, api_key, account, use_text, use_json, quiet, debug):
     """Get or set queue schedule rules.
 
     GET: view current posting times.
     SET: replace schedule rules. Rules format: [{"h":9,"m":30,"days":["mon","wed","fri"]}]
     """
     client, console, cfg = _get_client_and_console(api_key, quiet, debug=debug)
+    use_text = _resolve_text_mode(use_text, use_json, cfg)
     with client:
         ssid = _resolve_account_id(client, account, cfg)
         if action == "get":
@@ -978,9 +1010,10 @@ def queue_schedule(action, rules, api_key, account, use_text, quiet, debug):
 @click.argument("url")
 @shared_options
 @error_handler
-def linkedin_resolve(url, api_key, account, use_text, quiet, debug):
+def linkedin_resolve(url, api_key, account, use_text, use_json, quiet, debug):
     """Resolve a LinkedIn company URL to mention syntax."""
     client, console, cfg = _get_client_and_console(api_key, quiet, debug=debug)
+    use_text = _resolve_text_mode(use_text, use_json, cfg)
     with client:
         ssid = _resolve_account_id(client, account, cfg)
         data = client.resolve_linkedin_org(ssid, url)
@@ -994,9 +1027,10 @@ def linkedin_resolve(url, api_key, account, use_text, quiet, debug):
 @click.argument("draft_id")
 @shared_options
 @error_handler
-def publish(draft_id, api_key, account, use_text, quiet, debug):
+def publish(draft_id, api_key, account, use_text, use_json, quiet, debug):
     """Publish a draft immediately."""
     client, console, cfg = _get_client_and_console(api_key, quiet, debug=debug)
+    use_text = _resolve_text_mode(use_text, use_json, cfg)
     with client:
         ssid = _resolve_account_id(client, account, cfg)
         console.status(f"Publishing draft {draft_id}...")
@@ -1013,9 +1047,10 @@ def publish(draft_id, api_key, account, use_text, quiet, debug):
               help="ISO datetime or 'next' (default: next)")
 @shared_options
 @error_handler
-def schedule_cmd(draft_id, schedule_time, api_key, account, use_text, quiet, debug):
+def schedule_cmd(draft_id, schedule_time, api_key, account, use_text, use_json, quiet, debug):
     """Schedule a draft. Defaults to next free slot."""
     client, console, cfg = _get_client_and_console(api_key, quiet, debug=debug)
+    use_text = _resolve_text_mode(use_text, use_json, cfg)
     with client:
         ssid = _resolve_account_id(client, account, cfg)
         publish_at = "next-free-slot" if schedule_time == "next" else schedule_time
@@ -1031,9 +1066,10 @@ def schedule_cmd(draft_id, schedule_time, api_key, account, use_text, quiet, deb
 @click.argument("media_id")
 @shared_options
 @error_handler
-def media_status(media_id, api_key, account, use_text, quiet, debug):
+def media_status(media_id, api_key, account, use_text, use_json, quiet, debug):
     """Check the processing status of an uploaded media file."""
     client, console, cfg = _get_client_and_console(api_key, quiet, debug=debug)
+    use_text = _resolve_text_mode(use_text, use_json, cfg)
     with client:
         ssid = _resolve_account_id(client, account, cfg)
         data = client.get_media(ssid, media_id)
