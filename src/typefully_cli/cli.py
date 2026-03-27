@@ -353,7 +353,9 @@ def recent(limit, since, until_date, output_format, api_key, account, use_text, 
 
 
 @cli.command()
-@click.argument("text")
+@click.argument("text", required=False, default=None)
+@click.option("--file", "-f", "input_file", default=None, type=click.Path(exists=True),
+              help="Read post content from a file")
 @click.option("--schedule", default=None, help="ISO datetime, 'next', or 'now'")
 @click.option("--tag", "tags", multiple=True, help="Tag name (repeatable, auto-created)")
 @click.option("--title", default=None)
@@ -369,22 +371,44 @@ def recent(limit, since, until_date, output_format, api_key, account, use_text, 
 @click.option("--threads", is_flag=True)
 @click.option("--bluesky", is_flag=True)
 @click.option("--mastodon", is_flag=True)
+@click.option("--all", "all_platforms", is_flag=True, help="Post to all connected platforms")
+@click.option("--community", default=None, help="X community ID")
 @shared_options
 @error_handler
 def draft(
-    text, schedule, tags, title, media, share, reply_to, scratchpad,
+    text, input_file, schedule, tags, title, media, share, reply_to, scratchpad,
     qrt, threadify, auto_retweet, auto_plug,
-    linkedin, threads, bluesky, mastodon,
+    linkedin, threads, bluesky, mastodon, all_platforms, community,
     api_key, account, use_text, quiet, debug,
 ):
     """Create a draft post."""
+    if input_file:
+        with open(input_file, encoding="utf-8") as fh:
+            text = fh.read().strip()
+    if not text:
+        raise TypefullyError(
+            "No text provided", code="invalid_input",
+            hint="Pass text as argument or use --file",
+        )
     client, console, cfg = _get_client_and_console(api_key, quiet, debug=debug)
     with client:
         ssid = _resolve_account_id(client, account, cfg)
 
-        # QRT: append URL
-        if qrt:
-            text = f"{text}\n{qrt}"
+        # All-platforms: fetch connected platforms and enable them
+        if all_platforms:
+            ss_data = client.get_social_set(ssid)
+            connected = ss_data.get("platforms", {})
+            for p_name in connected:
+                if p_name == "x":
+                    continue  # already enabled by default
+                if p_name == "linkedin":
+                    linkedin = True
+                elif p_name == "threads":
+                    threads = True
+                elif p_name == "bluesky":
+                    bluesky = True
+                elif p_name == "mastodon":
+                    mastodon = True
 
         # Tag auto-creation
         if tags:
@@ -397,6 +421,7 @@ def draft(
             scratchpad=scratchpad, threadify=threadify,
             auto_retweet=auto_retweet, auto_plug=auto_plug,
             linkedin=linkedin, threads_flag=threads, bluesky=bluesky, mastodon=mastodon,
+            quote_post_url=qrt, community=community,
         )
 
         console.status("Creating draft...")
@@ -423,12 +448,14 @@ def draft(
 @click.option("--threads", is_flag=True)
 @click.option("--bluesky", is_flag=True)
 @click.option("--mastodon", is_flag=True)
+@click.option("--all", "all_platforms", is_flag=True, help="Post to all connected platforms")
+@click.option("--community", default=None, help="X community ID")
 @shared_options
 @error_handler
 def thread(
     posts, schedule, tags, title, media, share, reply_to, scratchpad,
     qrt, auto_retweet, auto_plug,
-    linkedin, threads, bluesky, mastodon,
+    linkedin, threads, bluesky, mastodon, all_platforms, community,
     api_key, account, use_text, quiet, debug,
 ):
     """Create a multi-post thread. Provide 2+ posts as separate arguments."""
@@ -445,8 +472,22 @@ def thread(
         ssid = _resolve_account_id(client, account, cfg)
 
         posts_list = list(posts)
-        if qrt and posts_list:
-            posts_list[0] = f"{posts_list[0]}\n{qrt}"
+
+        # All-platforms: fetch connected platforms and enable them
+        if all_platforms:
+            ss_data = client.get_social_set(ssid)
+            connected = ss_data.get("platforms", {})
+            for p_name in connected:
+                if p_name == "x":
+                    continue  # already enabled by default
+                if p_name == "linkedin":
+                    linkedin = True
+                elif p_name == "threads":
+                    threads = True
+                elif p_name == "bluesky":
+                    bluesky = True
+                elif p_name == "mastodon":
+                    mastodon = True
 
         if tags:
             for w in client.ensure_tags(ssid, list(tags)):
@@ -458,6 +499,7 @@ def thread(
             scratchpad=scratchpad, threadify=False,
             auto_retweet=auto_retweet, auto_plug=auto_plug,
             linkedin=linkedin, threads_flag=threads, bluesky=bluesky, mastodon=mastodon,
+            quote_post_url=qrt, community=community,
         )
 
         console.status(f"Creating {len(posts_list)}-post thread...")
@@ -525,11 +567,13 @@ def open_draft(draft_id, api_key, account, use_text, quiet, debug):
 @click.option("--auto-retweet/--no-auto-retweet", default=None)
 @click.option("--auto-plug/--no-auto-plug", default=None)
 @click.option("--media", default=None)
+@click.option("--append", "append_posts", is_flag=True,
+              help="Append posts to existing thread instead of replacing")
 @shared_options
 @error_handler
 def update(
     draft_id, text, schedule, tags, title, share_flag, scratchpad,
-    auto_retweet, auto_plug, media,
+    auto_retweet, auto_plug, media, append_posts,
     api_key, account, use_text, quiet, debug,
 ):
     """Update an existing draft. Text supports === for thread post splitting."""
@@ -544,11 +588,23 @@ def update(
         payload: dict[str, Any] = {}
 
         if text:
-            parts = [p.strip() for p in text.split("===") if p.strip()]
-            posts = [{"text": p} for p in parts]
-            if media:
-                posts[0]["media_ids"] = [m.strip() for m in media.split(",")]
-            payload["platforms"] = {"x": {"enabled": True, "posts": posts}}
+            if append_posts:
+                # Fetch existing draft to get current posts
+                existing = client.get_draft(ssid, draft_id)
+                existing_posts = []
+                platforms = existing.get("platforms", {})
+                if isinstance(platforms, dict) and "x" in platforms:
+                    existing_posts = platforms["x"].get("posts", [])
+                new_parts = [p.strip() for p in text.split("===") if p.strip()]
+                new_posts = [{"text": p} for p in new_parts]
+                all_posts = existing_posts + new_posts
+                payload["platforms"] = {"x": {"enabled": True, "posts": all_posts}}
+            else:
+                parts = [p.strip() for p in text.split("===") if p.strip()]
+                posts = [{"text": p} for p in parts]
+                if media:
+                    posts[0]["media_ids"] = [m.strip() for m in media.split(",")]
+                payload["platforms"] = {"x": {"enabled": True, "posts": posts}}
         elif media:
             payload["platforms"] = {
                 "x": {"enabled": True, "posts": [{"media_ids": [m.strip() for m in media.split(",")]}]}
@@ -699,15 +755,30 @@ def tag_create(name, api_key, account, use_text, quiet, debug):
 
 @cli.command()
 @click.argument("file_path", type=click.Path(exists=True))
+@click.option("--no-wait", is_flag=True, help="Return immediately after S3 upload, skip processing poll")
+@click.option("--timeout", "poll_timeout", default=60, type=int,
+              help="Media processing poll timeout in seconds")
 @shared_options
 @error_handler
-def upload(file_path, api_key, account, use_text, quiet, debug):
+def upload(file_path, no_wait, poll_timeout, api_key, account, use_text, quiet, debug):
     """Upload a media file and return its media ID."""
     client, console, cfg = _get_client_and_console(api_key, quiet, debug=debug)
     with client:
         ssid = _resolve_account_id(client, account, cfg)
-        data = upload_media(client, ssid, file_path, console)
-        _output(data, use_text, fmt.print_upload_result)
+        if no_wait:
+            from typefully_cli.media import _sanitize_filename
+            file_name = _sanitize_filename(os.path.basename(file_path))
+            console.status(f"Requesting upload URL for {file_name}...")
+            upload_response = client.request_upload(ssid, file_name)
+            media_id = upload_response.get("media_id", "")
+            upload_url = upload_response.get("upload_url", "")
+            console.status(f"Uploading {file_name}...")
+            client.upload_to_s3(upload_url, file_path)
+            data = {"media_id": media_id, "status": "uploading"}
+            _output(data, use_text, fmt.print_upload_result)
+        else:
+            data = upload_media(client, ssid, file_path, console, timeout=poll_timeout)
+            _output(data, use_text, fmt.print_upload_result)
 
 
 # --- batch ---
@@ -814,6 +885,161 @@ def batch(file_path, schedule, tags, share, dry_run, output_file, api_key, accou
         )
 
 
+# --- analytics ---
+
+
+@cli.command()
+@click.option("--platform", default="x", help="Platform: x (default)")
+@click.option("--start-date", default="", help="Start date YYYY-MM-DD")
+@click.option("--end-date", default="", help="End date YYYY-MM-DD")
+@click.option("--include-replies", is_flag=True, help="Include reply posts")
+@click.option("-n", "--limit", default=50, type=int, help="Number of posts (max: 50)")
+@click.option("--offset", default=0, type=int)
+@shared_options
+@error_handler
+def analytics(platform, start_date, end_date, include_replies, limit, offset,
+              api_key, account, use_text, quiet, debug):
+    """List post analytics (impressions, engagement)."""
+    _validate_limit(limit)
+    start_date = _validate_date(start_date, "--start-date")
+    end_date = _validate_date(end_date, "--end-date")
+    client, console, cfg = _get_client_and_console(api_key, quiet, debug=debug)
+    with client:
+        ssid = _resolve_account_id(client, account, cfg)
+        data = client.list_analytics(
+            ssid, platform=platform, start_date=start_date, end_date=end_date,
+            include_replies=include_replies, limit=limit, offset=offset,
+        )
+        _output(data, use_text, fmt.print_analytics)
+
+
+# --- queue ---
+
+
+@cli.command()
+@click.option("--start-date", default="", help="Start date YYYY-MM-DD")
+@click.option("--end-date", default="", help="End date YYYY-MM-DD")
+@shared_options
+@error_handler
+def queue(start_date, end_date, api_key, account, use_text, quiet, debug):
+    """View the posting queue (scheduled slots and drafts)."""
+    start_date = _validate_date(start_date, "--start-date")
+    end_date = _validate_date(end_date, "--end-date")
+    client, console, cfg = _get_client_and_console(api_key, quiet, debug=debug)
+    with client:
+        ssid = _resolve_account_id(client, account, cfg)
+        data = client.get_queue(ssid, start_date=start_date, end_date=end_date)
+        _output(data, use_text, fmt.print_queue)
+
+
+# --- queue-schedule ---
+
+
+@cli.command("queue-schedule")
+@click.argument("action", type=click.Choice(["get", "set"]))
+@click.option("--rules", default=None, help="JSON array of schedule rules (for set)")
+@shared_options
+@error_handler
+def queue_schedule(action, rules, api_key, account, use_text, quiet, debug):
+    """Get or set queue schedule rules.
+
+    GET: view current posting times.
+    SET: replace schedule rules. Rules format: [{"h":9,"m":30,"days":["mon","wed","fri"]}]
+    """
+    client, console, cfg = _get_client_and_console(api_key, quiet, debug=debug)
+    with client:
+        ssid = _resolve_account_id(client, account, cfg)
+        if action == "get":
+            data = client.get_queue_schedule(ssid)
+            _output(data, use_text, fmt.print_queue_schedule)
+        else:
+            if not rules:
+                raise TypefullyError(
+                    "Missing --rules for set action",
+                    code="invalid_input",
+                    hint='Example: --rules \'[{"h":9,"m":30,"days":["mon","wed","fri"]}]\'',
+                )
+            try:
+                parsed = json.loads(rules)
+            except json.JSONDecodeError:
+                raise TypefullyError(
+                    "Invalid JSON in --rules",
+                    code="invalid_input",
+                    hint="Rules must be a valid JSON array",
+                )
+            data = client.set_queue_schedule(ssid, parsed)
+            _output(data, use_text, fmt.print_queue_schedule)
+
+
+# --- linkedin-resolve ---
+
+
+@cli.command("linkedin-resolve")
+@click.argument("url")
+@shared_options
+@error_handler
+def linkedin_resolve(url, api_key, account, use_text, quiet, debug):
+    """Resolve a LinkedIn company URL to mention syntax."""
+    client, console, cfg = _get_client_and_console(api_key, quiet, debug=debug)
+    with client:
+        ssid = _resolve_account_id(client, account, cfg)
+        data = client.resolve_linkedin_org(ssid, url)
+        _output(data, use_text, fmt.print_linkedin_resolve)
+
+
+# --- publish ---
+
+
+@cli.command()
+@click.argument("draft_id")
+@shared_options
+@error_handler
+def publish(draft_id, api_key, account, use_text, quiet, debug):
+    """Publish a draft immediately."""
+    client, console, cfg = _get_client_and_console(api_key, quiet, debug=debug)
+    with client:
+        ssid = _resolve_account_id(client, account, cfg)
+        console.status(f"Publishing draft {draft_id}...")
+        data = client.update_draft(ssid, draft_id, {"publish_at": "now"})
+        _output(data, use_text, fmt.print_draft_short)
+
+
+# --- schedule ---
+
+
+@cli.command("schedule")
+@click.argument("draft_id")
+@click.option("--time", "schedule_time", default="next",
+              help="ISO datetime or 'next' (default: next)")
+@shared_options
+@error_handler
+def schedule_cmd(draft_id, schedule_time, api_key, account, use_text, quiet, debug):
+    """Schedule a draft. Defaults to next free slot."""
+    client, console, cfg = _get_client_and_console(api_key, quiet, debug=debug)
+    with client:
+        ssid = _resolve_account_id(client, account, cfg)
+        publish_at = "next-free-slot" if schedule_time == "next" else schedule_time
+        console.status(f"Scheduling draft {draft_id}...")
+        data = client.update_draft(ssid, draft_id, {"publish_at": publish_at})
+        _output(data, use_text, fmt.print_draft_short)
+
+
+# --- media-status ---
+
+
+@cli.command("media-status")
+@click.argument("media_id")
+@shared_options
+@error_handler
+def media_status(media_id, api_key, account, use_text, quiet, debug):
+    """Check the processing status of an uploaded media file."""
+    client, console, cfg = _get_client_and_console(api_key, quiet, debug=debug)
+    with client:
+        ssid = _resolve_account_id(client, account, cfg)
+        data = client.get_media(ssid, media_id)
+        _output(data, use_text, fmt.print_media_status)
+
+
 # --- Payload builder ---
 
 
@@ -833,6 +1059,8 @@ def _build_draft_payload(
     threads_flag: bool = False,
     bluesky: bool = False,
     mastodon: bool = False,
+    quote_post_url: str | None = None,
+    community: str | None = None,
 ) -> dict:
     """Build a draft creation payload from CLI args."""
     posts = [{"text": t} for t in posts_text]
@@ -840,9 +1068,16 @@ def _build_draft_payload(
     if media:
         posts[0]["media_ids"] = [m.strip() for m in media.split(",")]
 
+    if quote_post_url:
+        posts[0]["quote_post_url"] = quote_post_url
+
     x_platform: dict[str, Any] = {"enabled": True, "posts": posts}
     if reply_to:
         x_platform["settings"] = {"reply_to_url": reply_to}
+    if community:
+        if "settings" not in x_platform:
+            x_platform["settings"] = {}
+        x_platform["settings"]["community_id"] = community
 
     platforms: dict[str, Any] = {"x": x_platform}
     for flag, name in [(linkedin, "linkedin"), (threads_flag, "threads"), (bluesky, "bluesky"), (mastodon, "mastodon")]:
