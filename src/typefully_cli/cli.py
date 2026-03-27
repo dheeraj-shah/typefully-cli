@@ -102,6 +102,52 @@ def _validate_limit(value: int, max_val: int = 50) -> int:
     return value
 
 
+def _apply_default_platforms(
+    config: Config,
+    linkedin: bool, threads: bool, bluesky: bool, mastodon: bool,
+    all_platforms: bool,
+) -> tuple:
+    """Apply default platforms from config when no platform flags are explicitly set."""
+    if all_platforms or linkedin or threads or bluesky or mastodon:
+        return linkedin, threads, bluesky, mastodon
+    if not config.default_platforms:
+        return linkedin, threads, bluesky, mastodon
+    for p in config.default_platforms.split(","):
+        p = p.strip().lower()
+        if p == "linkedin":
+            linkedin = True
+        elif p == "threads":
+            threads = True
+        elif p == "bluesky":
+            bluesky = True
+        elif p == "mastodon":
+            mastodon = True
+    return linkedin, threads, bluesky, mastodon
+
+
+def _apply_timezone(schedule: str | None, config: Config) -> str | None:
+    """Convert a schedule datetime to UTC if a timezone is configured and no tz info present."""
+    if not schedule or schedule in ("next", "now"):
+        return schedule
+    if not config.timezone:
+        return schedule
+    # If the schedule already has timezone info (Z, +, -), leave it alone
+    if schedule.endswith("Z") or "+" in schedule[10:] or schedule[10:].count("-") > 0:
+        return schedule
+    # Try to parse as a naive datetime and attach the configured timezone
+    from zoneinfo import ZoneInfo
+    try:
+        dt = datetime.datetime.fromisoformat(schedule)
+    except ValueError:
+        return schedule  # can't parse, let the API handle it
+    if dt.tzinfo is not None:
+        return schedule  # already has tz
+    local_tz = ZoneInfo(config.timezone)
+    local_dt = dt.replace(tzinfo=local_tz)
+    utc_dt = local_dt.astimezone(datetime.timezone.utc)
+    return utc_dt.strftime("%Y-%m-%dT%H:%M:%SZ")
+
+
 def _resolve_text_mode(use_text: bool, use_json: bool, config: Config) -> bool:
     """Resolve output mode: --json wins, then --text, then config, then default (text)."""
     if use_json:
@@ -226,7 +272,7 @@ def config():
 @click.argument("value")
 @error_handler
 def config_set_cmd(key: str, value: str, **kwargs):
-    """Set a config value. Keys: api_key, default_account, onepassword_item."""
+    """Set a config value. Keys: api_key, default_account, default_platforms, timezone, onepassword_item."""
     cfg = Config.load()
     result = config_set(cfg, key, value)
     write_success(result)
@@ -407,6 +453,10 @@ def draft(
         )
     client, console, cfg = _get_client_and_console(api_key, quiet, debug=debug)
     use_text = _resolve_text_mode(use_text, use_json, cfg)
+    schedule = _apply_timezone(schedule, cfg)
+    linkedin, threads, bluesky, mastodon = _apply_default_platforms(
+        cfg, linkedin, threads, bluesky, mastodon, all_platforms,
+    )
     with client:
         ssid = _resolve_account_id(client, account, cfg)
 
@@ -485,6 +535,10 @@ def thread(
 
     client, console, cfg = _get_client_and_console(api_key, quiet, debug=debug)
     use_text = _resolve_text_mode(use_text, use_json, cfg)
+    schedule = _apply_timezone(schedule, cfg)
+    linkedin, threads, bluesky, mastodon = _apply_default_platforms(
+        cfg, linkedin, threads, bluesky, mastodon, all_platforms,
+    )
     with client:
         ssid = _resolve_account_id(client, account, cfg)
 
@@ -598,6 +652,7 @@ def update(
     """Update an existing draft. Text supports === for thread post splitting."""
     client, console, cfg = _get_client_and_console(api_key, quiet, debug=debug)
     use_text = _resolve_text_mode(use_text, use_json, cfg)
+    schedule = _apply_timezone(schedule, cfg)
     with client:
         ssid = _resolve_account_id(client, account, cfg)
 
@@ -1051,6 +1106,7 @@ def schedule_cmd(draft_id, schedule_time, api_key, account, use_text, use_json, 
     """Schedule a draft. Defaults to next free slot."""
     client, console, cfg = _get_client_and_console(api_key, quiet, debug=debug)
     use_text = _resolve_text_mode(use_text, use_json, cfg)
+    schedule_time = _apply_timezone(schedule_time, cfg) or schedule_time
     with client:
         ssid = _resolve_account_id(client, account, cfg)
         publish_at = "next-free-slot" if schedule_time == "next" else schedule_time

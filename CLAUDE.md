@@ -24,7 +24,9 @@ src/typefully_cli/
 
 - **Output contract:** Success -> `{"ok": true, "data": ...}` on stdout. Errors -> `{"ok": false, "error": {...}}` on stderr. Exit codes: 0 success, 1 input/auth, 2 API, 3 partial failure.
 - **Rich markup safety:** All user/API text in output.py is wrapped with `_esc()` (rich.markup.escape) before printing. Never pass raw API content to `_console.print()`.
-- **Input validation:** Dates via `_validate_date()`, limits via `_validate_limit()`, both raise `TypefullyError(code="invalid_input")` which exits 1.
+- **Input validation:** Dates via `_validate_date()`, limits via `_validate_limit()`, timezones via `_validate_timezone()`, platforms via `_validate_platforms()`. All raise on invalid input with exit 1.
+- **Default platforms:** Config `default_platforms` (e.g. `x,linkedin`) auto-applied on `draft`/`thread` when no platform flags passed. Explicit flags override defaults.
+- **Timezone conversion:** Config `timezone` (IANA name) converts naive schedule datetimes to UTC before API call. Already-tz-aware values pass through unchanged.
 - **Partial failure:** Delete and batch loops catch per-item errors. `_handle_multi_result()` handles the 3-branch contract (all succeed / partial / all fail).
 - **Error sanitization:** `APIError.user_message` property strips raw upstream bodies from stdout payloads. Full details stay on stderr.
 - **API parity:** Tracks all Typefully API v2 endpoints including analytics, queue management, and LinkedIn org resolution.
@@ -49,6 +51,8 @@ Config at `~/.config/typefully/config.toml`. Test account: BungeeCEO.
 ```bash
 typefully config set api_key tf_...
 typefully config set default_account BungeeCEO
+typefully config set default_platforms x,linkedin
+typefully config set timezone Asia/Kolkata
 ```
 
 ## Conventions
