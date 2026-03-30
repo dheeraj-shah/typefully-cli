@@ -1,6 +1,6 @@
 # typefully-cli
 
-Manage [Typefully](https://typefully.com) drafts, threads, and publishing from your terminal.
+Publish to X, LinkedIn, Bluesky, Threads, and Mastodon from your terminal. Goes from idea to post without opening a browser.
 
 [![PyPI](https://img.shields.io/pypi/v/typefully-cli?v=1)](https://pypi.org/project/typefully-cli/)
 [![Python 3.9+](https://img.shields.io/pypi/pyversions/typefully-cli?v=1)](https://pypi.org/project/typefully-cli/)
@@ -8,10 +8,12 @@ Manage [Typefully](https://typefully.com) drafts, threads, and publishing from y
 
 ## Why
 
-- **Publish from your terminal** -- draft, schedule, and publish without opening a browser
-- **Batch create** -- turn a text file into 50 drafts with one command
-- **Analytics and queue** -- check post performance and manage your posting schedule
-- **Agent-compatible** -- JSON output mode, structured errors, deterministic exit codes
+Typefully's web UI is great for one post. Try pushing 100s across brand accounts and personal. I built a CLI to fix that, battle-tested it for 2 months, and open sourced it.
+
+- **Multi-platform, multi-account** -- push to X, LinkedIn, Bluesky, Threads, Mastodon across any number of accounts
+- **Batch create** -- prompt an AI, schedule 50 posts. One command.
+- **Queue and analytics** -- see what's scheduled and what's performing, without opening a browser
+- **Agent-compatible** -- JSON output, structured errors, deterministic exit codes for scripts and AI agents
 
 ## Install
 
@@ -22,51 +24,62 @@ uv tool install typefully-cli                  # alternative
 pip install typefully-cli                      # fallback
 ```
 
-> **Tip:** Add `alias tf=typefully` to your shell rc file for quick access.
+> **Tip:** `alias tf=typefully` in your shell rc. Your future self will thank you around draft #40.
 
 ## Quick Start
 
 ```bash
-# First-time setup (interactive)
-typefully config init
+typefully config init                              # first-time setup
+typefully draft "Hello world" --schedule next      # create and schedule a draft
+typefully thread "First" "Second" --tag launch     # create a thread
+typefully batch posts.txt --schedule next          # the reason this CLI exists
+```
 
-# Or set your API key directly (get it from typefully.com/settings/api)
-typefully config set api_key tf_your_key_here
+<details>
+<summary>More examples</summary>
 
-# Check auth
-typefully me
-
-# Create a draft
-typefully draft "Hello world" --schedule next
-
-# Create a thread
-typefully thread "First post" "Second post" --tag launch
-
+```bash
 # Post to all connected platforms
 typefully draft "Big announcement" --all --schedule next
 
 # Read post content from a file
 typefully draft --file post.txt --schedule next
 
-# Batch create from file
-typefully batch posts.txt --schedule next --tag campaign
-
 # Check analytics
 typefully analytics --start-date 2026-01-01
 
 # View your posting queue
 typefully queue
+
+# Shell completions
+typefully completions install
 ```
 
-**Shell completions:**
+</details>
 
-```bash
-typefully completions install   # auto-detects your shell, updates rc file
+## Batch File Format
+
+Drafts separated by `---`. Thread posts separated by `===`. Optional metadata headers per block.
+
 ```
+tag: launch
+schedule: next
+First post of a thread
+===
+Second post
+---
+A standalone draft
+---
+tag: announcement
+schedule: 2026-04-01T10:00:00Z
+Another standalone draft
+```
+
+Supported metadata: `tag`, `schedule`, `title`, `scratchpad`, `media` (comma-separated IDs). See [docs/batch-format.md](docs/batch-format.md) for the full spec.
 
 ## For Agents
 
-Every command supports `--json` for structured output. Pair with `--quiet` to suppress stderr status messages.
+Built for humans first, but your AI agent can use it too. Every command supports `--json` for structured output. Pair with `--quiet` to suppress stderr status messages.
 
 ```bash
 # JSON output mode
@@ -152,36 +165,89 @@ Human-readable output by default. Add `--json` to any command for structured JSO
 
 All account-scoped commands accept `--api-key`, `--account`, `--json`, `--quiet`.
 
+<details>
+<summary><strong>Account</strong></summary>
+
 | Command | Description |
 |---------|-------------|
 | `me` | Current user info |
 | `accounts` | List connected accounts with IDs |
 | `account-detail [NAME]` | Platform details for an account |
+
+</details>
+
+<details>
+<summary><strong>Creating</strong></summary>
+
+| Command | Description |
+|---------|-------------|
 | `draft "text"` | Create a single-post draft |
 | `thread "p1" "p2" ...` | Create a multi-post thread (min 2 posts) |
+| `batch FILE` | Batch create from text file (`--dry-run`, `--output`, `--schedule`, `--tag`) |
+
+</details>
+
+<details>
+<summary><strong>Managing</strong></summary>
+
+| Command | Description |
+|---------|-------------|
 | `get ID` | View a draft |
 | `open ID` | Open a draft in the browser |
 | `update ID ["text"]` | Edit a draft (use `===` to separate thread posts) |
 | `delete ID [ID ...]` | Delete one or more drafts |
 | `publish ID` | Publish a draft immediately |
 | `schedule ID` | Schedule a draft (`--time ISO\|next`, default: next) |
+
+</details>
+
+<details>
+<summary><strong>Viewing</strong></summary>
+
+| Command | Description |
+|---------|-------------|
 | `drafts` | List drafts (`--status`, `--tag`, `--limit`, `--offset`, `--order`) |
 | `recent` | Published posts (`-n`, `--since`, `--until`, `--format csv`) |
 | `analytics` | Post analytics (`--platform`, `--start-date`, `--end-date`, `--include-replies`) |
 | `queue` | View posting queue (`--start-date`, `--end-date`) |
 | `queue-schedule get\|set` | Get or set posting times (`--rules` for set) |
+
+</details>
+
+<details>
+<summary><strong>Media</strong></summary>
+
+| Command | Description |
+|---------|-------------|
 | `upload FILE` | Upload media (`--no-wait`, `--timeout`) |
 | `media-status ID` | Check media processing status |
 | `linkedin-resolve URL` | Resolve LinkedIn company URL to @mention syntax |
+
+</details>
+
+<details>
+<summary><strong>Tags</strong></summary>
+
+| Command | Description |
+|---------|-------------|
 | `tags` | List tags (`--limit`, `--offset`) |
 | `tag-create "name"` | Create a tag (usually auto-created via `--tag`) |
-| `batch FILE` | Batch create from text file (`--dry-run`, `--output`, `--schedule`, `--tag`) |
+
+</details>
+
+<details>
+<summary><strong>Config</strong></summary>
+
+| Command | Description |
+|---------|-------------|
 | `config set KEY VALUE` | Set config (api_key, default_account, output_format, onepassword_item) |
 | `config init` | Interactive first-time setup |
 | `config show` | Show config (secrets redacted) |
 | `config path` | Print config file path |
 | `completions install` | Auto-install shell completions (bash/zsh/fish) |
 | `completions show` | Print raw completion script |
+
+</details>
 
 ### Platforms
 
@@ -199,26 +265,6 @@ All account-scoped commands accept `--api-key`, `--account`, `--json`, `--quiet`
 **Update options:** all draft options plus `--append` (add posts to existing thread)
 
 Run `typefully COMMAND --help` for full option details.
-
-## Batch File Format
-
-Drafts separated by `---`. Thread posts separated by `===`. Optional metadata headers per block.
-
-```
-tag: launch
-schedule: next
-First post of a thread
-===
-Second post
----
-A standalone draft
----
-tag: announcement
-schedule: 2026-04-01T10:00:00Z
-Another standalone draft
-```
-
-Supported metadata: `tag`, `schedule`, `title`, `scratchpad`, `media` (comma-separated IDs). See [docs/batch-format.md](docs/batch-format.md) for the full spec.
 
 ## Troubleshooting
 
