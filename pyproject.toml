@@ -39,10 +39,10 @@ dev = ["pytest>=7.0", "pytest-httpx>=0.30", "ruff"]
 typefully = "typefully_cli.cli:cli"
 
 [project.urls]
-Homepage = "https://github.com/nicedevelopers/typefully-cli"
-Repository = "https://github.com/nicedevelopers/typefully-cli"
-Issues = "https://github.com/nicedevelopers/typefully-cli/issues"
-Changelog = "https://github.com/nicedevelopers/typefully-cli/blob/main/CHANGELOG.md"
+Homepage = "https://github.com/dheeraj-shah/typefully-cli"
+Repository = "https://github.com/dheeraj-shah/typefully-cli"
+Issues = "https://github.com/dheeraj-shah/typefully-cli/issues"
+Changelog = "https://github.com/dheeraj-shah/typefully-cli/blob/main/CHANGELOG.md"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/typefully_cli"]
