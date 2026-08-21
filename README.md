@@ -2,8 +2,8 @@
 
 Publish to X, LinkedIn, Bluesky, Threads, Mastodon, Substack Notes, and X Articles from your terminal. Goes from idea to post without opening a browser.
 
-[![PyPI](https://img.shields.io/pypi/v/typefully-cli?v=1)](https://pypi.org/project/typefully-cli/)
-[![Python 3.9+](https://img.shields.io/pypi/pyversions/typefully-cli?v=1)](https://pypi.org/project/typefully-cli/)
+[![PyPI](https://img.shields.io/pypi/v/typefully-cli.svg)](https://pypi.org/project/typefully-cli/)
+[![Python 3.9+](https://img.shields.io/pypi/pyversions/typefully-cli.svg)](https://pypi.org/project/typefully-cli/)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 
 ## Why
