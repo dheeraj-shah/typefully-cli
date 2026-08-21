@@ -128,12 +128,34 @@ class TypefullyClient:
     def create_draft(self, social_set_id: int, payload: dict) -> dict:
         return self._request("POST", f"/social-sets/{social_set_id}/drafts", json=payload) or {}
 
-    def get_draft(self, social_set_id: int, draft_id: str) -> dict:
-        return self._request("GET", f"/social-sets/{social_set_id}/drafts/{draft_id}") or {}
-
-    def update_draft(self, social_set_id: int, draft_id: str, payload: dict) -> dict:
+    def get_draft(
+        self, social_set_id: int, draft_id: str, *, exclude_comment_markers: bool = False
+    ) -> dict:
+        params = {"exclude_comment_markers": "true"} if exclude_comment_markers else None
         return (
-            self._request("PATCH", f"/social-sets/{social_set_id}/drafts/{draft_id}", json=payload)
+            self._request(
+                "GET", f"/social-sets/{social_set_id}/drafts/{draft_id}", params=params
+            )
+            or {}
+        )
+
+    def update_draft(
+        self,
+        social_set_id: int,
+        draft_id: str,
+        payload: dict,
+        *,
+        exclude_comment_markers: bool = False,
+    ) -> dict:
+        return (
+            self._request(
+                "PATCH",
+                f"/social-sets/{social_set_id}/drafts/{draft_id}",
+                json=payload,
+                params={"exclude_comment_markers": "true"}
+                if exclude_comment_markers
+                else None,
+            )
             or {}
         )
 
@@ -285,6 +307,27 @@ class TypefullyClient:
             or {}
         )
 
+    def get_follower_analytics(
+        self,
+        social_set_id: int,
+        platform: str = "x",
+        start_date: str = "",
+        end_date: str = "",
+    ) -> dict:
+        params: dict = {}
+        if start_date:
+            params["start_date"] = start_date
+        if end_date:
+            params["end_date"] = end_date
+        return (
+            self._request(
+                "GET",
+                f"/social-sets/{social_set_id}/analytics/{platform}/followers",
+                params=params,
+            )
+            or {}
+        )
+
     # --- Queue ---
 
     def get_queue(
@@ -337,6 +380,70 @@ class TypefullyClient:
                 params={"organization_url": organization_url},
             )
             or {}
+        )
+
+    # --- Draft comments ---
+
+    def list_comment_threads(self, social_set_id: int, draft_id: str, **params: object) -> dict:
+        return (
+            self._request(
+                "GET", f"/social-sets/{social_set_id}/drafts/{draft_id}/comment-threads", params=params
+            )
+            or {}
+        )
+
+    def create_comment_thread(self, social_set_id: int, draft_id: str, payload: dict) -> dict:
+        return (
+            self._request(
+                "POST", f"/social-sets/{social_set_id}/drafts/{draft_id}/comment-threads", json=payload
+            )
+            or {}
+        )
+
+    def reply_to_comment_thread(
+        self, social_set_id: int, draft_id: str, thread_id: str, text: str
+    ) -> dict:
+        return (
+            self._request(
+                "POST",
+                f"/social-sets/{social_set_id}/drafts/{draft_id}/comment-threads/{thread_id}/comments",
+                json={"text": text},
+            )
+            or {}
+        )
+
+    def resolve_comment_thread(self, social_set_id: int, draft_id: str, thread_id: str) -> dict:
+        return (
+            self._request(
+                "POST",
+                f"/social-sets/{social_set_id}/drafts/{draft_id}/comment-threads/{thread_id}/resolve",
+            )
+            or {}
+        )
+
+    def update_comment(
+        self, social_set_id: int, draft_id: str, thread_id: str, comment_id: str, text: str
+    ) -> dict:
+        return (
+            self._request(
+                "PATCH",
+                f"/social-sets/{social_set_id}/drafts/{draft_id}/comment-threads/{thread_id}/comments/{comment_id}",
+                json={"text": text},
+            )
+            or {}
+        )
+
+    def delete_comment_thread(self, social_set_id: int, draft_id: str, thread_id: str) -> None:
+        self._request(
+            "DELETE", f"/social-sets/{social_set_id}/drafts/{draft_id}/comment-threads/{thread_id}"
+        )
+
+    def delete_comment(
+        self, social_set_id: int, draft_id: str, thread_id: str, comment_id: str
+    ) -> None:
+        self._request(
+            "DELETE",
+            f"/social-sets/{social_set_id}/drafts/{draft_id}/comment-threads/{thread_id}/comments/{comment_id}",
         )
 
     # --- Rate-limited batch operations ---

@@ -180,3 +180,38 @@ class TestEnsureTagsPagination:
 
         client.ensure_tags(1, ["brand-new"])
         client.create_tag.assert_called_once_with(1, "brand-new")
+
+
+class TestOfficialMcpEndpoints:
+    """Endpoints added to Typefully's official MCP/agent skill."""
+
+    def test_follower_analytics_endpoint(self):
+        client = TypefullyClient(api_key="test")
+        client._request = MagicMock(return_value={"results": []})
+        client.get_follower_analytics(123, start_date="2026-01-01", end_date="2026-01-31")
+        client._request.assert_called_once_with(
+            "GET",
+            "/social-sets/123/analytics/x/followers",
+            params={"start_date": "2026-01-01", "end_date": "2026-01-31"},
+        )
+
+    def test_comment_thread_endpoints(self):
+        client = TypefullyClient(api_key="test")
+        client._request = MagicMock(return_value={})
+        client.create_comment_thread(1, "draft", {"text": "Review", "selected_text": "copy"})
+        client._request.assert_called_with(
+            "POST", "/social-sets/1/drafts/draft/comment-threads",
+            json={"text": "Review", "selected_text": "copy"},
+        )
+        client.resolve_comment_thread(1, "draft", "thread")
+        client._request.assert_called_with(
+            "POST", "/social-sets/1/drafts/draft/comment-threads/thread/resolve"
+        )
+
+    def test_get_draft_can_exclude_comment_markers(self):
+        client = TypefullyClient(api_key="test")
+        client._request = MagicMock(return_value={})
+        client.get_draft(1, "draft", exclude_comment_markers=True)
+        client._request.assert_called_once_with(
+            "GET", "/social-sets/1/drafts/draft", params={"exclude_comment_markers": "true"}
+        )

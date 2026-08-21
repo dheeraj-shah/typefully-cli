@@ -7,6 +7,7 @@ from click.testing import CliRunner
 from unittest.mock import patch
 
 from typefully_cli.cli import cli
+from typefully_cli.cli import _build_draft_payload
 
 
 @pytest.fixture
@@ -82,6 +83,30 @@ class TestOutputContract:
     def test_version(self, runner):
         result = runner.invoke(cli, ["--version"])
         assert "typefully" in result.output.lower()
+
+
+class TestOfficialMcpPayloads:
+    def test_x_article_payload(self):
+        payload = _build_draft_payload(
+            posts_text=[], platforms=["x_article"], content_markdown="# Title", cover_media_id="media-1"
+        )
+        assert payload["platforms"] == {
+            "x_article": {"content_markdown": "# Title", "cover_media_id": "media-1"}
+        }
+
+    def test_substack_thread_is_rejected(self):
+        from typefully_cli.exceptions import TypefullyError
+        with pytest.raises(TypefullyError):
+            _build_draft_payload(posts_text=["one", "two"], platforms=["substack"])
+
+    def test_x_disclosures_and_link_preview_payload(self):
+        payload = _build_draft_payload(
+            posts_text=["Post"], platforms=["x", "linkedin"], quote_post_url="https://x.com/a/status/1",
+            paid_partnership=True, made_with_ai=True, hide_link_preview=True,
+        )
+        assert payload["platforms"]["x"]["posts"][0]["quote_post_url"].endswith("/1")
+        assert payload["platforms"]["x"]["posts"][0]["paid_partnership"] is True
+        assert payload["platforms"]["linkedin"]["posts"][0]["hide_link_preview"] is True
 
 
 class TestBatchDryRun:

@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.2.0 (2026-08-21)
+
+Sync with Typefully's official MCP and Agent Skill surface.
+
+- Add X follower analytics with `followers`.
+- Add planned drafts with `draft --plan`, `update --plan`, and `plan`.
+- Add review comment threads: list, create, reply, resolve, update, delete.
+- Add comment-marker-safe reads and updates.
+- Add Substack Notes, X Articles, platform selection, link-preview suppression, X disclosures, and official quote-post payload fields.
+- Add multi-platform draft/thread creation through `--platform`.
+
 ## 0.1.0 (2026-03-26)
 
 Initial release.
