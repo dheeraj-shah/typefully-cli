@@ -1,6 +1,6 @@
 # typefully-cli
 
-Publish to X, LinkedIn, Bluesky, Threads, and Mastodon from your terminal. Goes from idea to post without opening a browser.
+Publish to X, LinkedIn, Bluesky, Threads, Mastodon, Substack Notes, and X Articles from your terminal. Goes from idea to post without opening a browser.
 
 [![PyPI](https://img.shields.io/pypi/v/typefully-cli?v=1)](https://pypi.org/project/typefully-cli/)
 [![Python 3.9+](https://img.shields.io/pypi/pyversions/typefully-cli?v=1)](https://pypi.org/project/typefully-cli/)
@@ -47,6 +47,7 @@ typefully draft --file post.txt --schedule next
 
 # Check analytics
 typefully analytics --start-date 2026-01-01
+typefully followers --start-date 2026-01-01
 
 # View your posting queue
 typefully queue
@@ -198,6 +199,8 @@ All account-scoped commands accept `--api-key`, `--account`, `--json`, `--quiet`
 | `delete ID [ID ...]` | Delete one or more drafts |
 | `publish ID` | Publish a draft immediately |
 | `schedule ID` | Schedule a draft (`--time ISO\|next`, default: next) |
+| `plan ID --time ISO\|next` | Place draft on calendar without scheduling publication |
+| `comments list\|create\|reply\|resolve\|update\|delete` | Manage draft review comments |
 
 </details>
 
@@ -209,6 +212,7 @@ All account-scoped commands accept `--api-key`, `--account`, `--json`, `--quiet`
 | `drafts` | List drafts (`--status`, `--tag`, `--limit`, `--offset`, `--order`) |
 | `recent` | Published posts (`-n`, `--since`, `--until`, `--format csv`) |
 | `analytics` | Post analytics (`--platform`, `--start-date`, `--end-date`, `--include-replies`) |
+| `followers` | Follower analytics (`--platform`, `--start-date`, `--end-date`) |
 | `queue` | View posting queue (`--start-date`, `--end-date`) |
 | `queue-schedule get\|set` | Get or set posting times (`--rules` for set) |
 
@@ -258,9 +262,11 @@ All account-scoped commands accept `--api-key`, `--account`, `--json`, `--quiet`
 | Threads | `--threads` |
 | Bluesky | `--bluesky` |
 | Mastodon | `--mastodon` |
+| Substack Notes | `--substack` or `--platform substack` |
+| X Article | `--platform x_article --content-markdown "..."` |
 | All connected | `--all` |
 
-**Draft options:** `--schedule ISO|next|now`, `--tag SLUG` (repeatable, auto-created), `--title`, `--media ID`, `--share`, `--reply-to URL`, `--scratchpad`, `--qrt URL`, `--threadify`, `--auto-retweet/--no-auto-retweet`, `--auto-plug/--no-auto-plug`, `--file` (read from file), `--community ID` (X community)
+**Draft options:** `--schedule ISO|next|now`, `--plan ISO|next`, `--platform x,linkedin`, `--tag SLUG` (repeatable, auto-created), `--title`, `--media ID`, `--share`, `--reply-to URL`, `--scratchpad`, `--qrt URL`, `--threadify`, `--auto-retweet/--no-auto-retweet`, `--auto-plug/--no-auto-plug`, `--file` (read from file), `--community ID` (X community), `--paid-partnership`, `--made-with-ai`, `--hide-link-preview`.
 
 **Update options:** all draft options plus `--append` (add posts to existing thread)
 

@@ -148,6 +148,55 @@ def _apply_timezone(schedule: str | None, config: Config) -> str | None:
     return utc_dt.strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
+POST_PLATFORMS = {"x", "linkedin", "threads", "bluesky", "mastodon", "substack"}
+LINK_PREVIEW_PLATFORMS = {"linkedin", "threads", "substack"}
+
+
+def _resolve_platforms(
+    client: TypefullyClient,
+    social_set_id: int,
+    platform: str | None,
+    *,
+    linkedin: bool = False,
+    threads: bool = False,
+    bluesky: bool = False,
+    mastodon: bool = False,
+    substack: bool = False,
+    all_platforms: bool = False,
+) -> list[str]:
+    """Resolve target platforms while preserving legacy X-default behavior."""
+    if platform and (all_platforms or any((linkedin, threads, bluesky, mastodon, substack))):
+        raise TypefullyError(
+            "--platform cannot be combined with platform flags or --all",
+            code="invalid_input",
+        )
+    if platform:
+        result = [p.strip().lower() for p in platform.split(",") if p.strip()]
+    elif all_platforms:
+        connected = client.get_social_set(social_set_id).get("platforms", {})
+        result = [p for p in POST_PLATFORMS if p in connected and connected[p] is not None]
+    else:
+        result = ["x"]
+        result.extend(
+            p for enabled, p in (
+                (linkedin, "linkedin"), (threads, "threads"), (bluesky, "bluesky"),
+                (mastodon, "mastodon"), (substack, "substack"),
+            ) if enabled
+        )
+    if not result:
+        raise TypefullyError("No connected platforms found", code="invalid_input")
+    unknown = set(result) - POST_PLATFORMS - {"x_article"}
+    if unknown:
+        raise TypefullyError(
+            f"Unknown platform(s): {', '.join(sorted(unknown))}",
+            code="invalid_input",
+            hint="Valid: x, linkedin, threads, bluesky, mastodon, substack, x_article",
+        )
+    if "x_article" in result and len(result) != 1:
+        raise TypefullyError("x_article is standalone and cannot be combined with other platforms", code="invalid_input")
+    return list(dict.fromkeys(result))
+
+
 def _resolve_text_mode(use_text: bool, use_json: bool, config: Config) -> bool:
     """Resolve output mode: --json wins, then --text, then config, then default (text)."""
     if use_json:
@@ -418,13 +467,14 @@ def recent(limit, since, until_date, output_format, api_key, account, use_text, 
 @click.option("--file", "-f", "input_file", default=None, type=click.Path(exists=True),
               help="Read post content from a file")
 @click.option("--schedule", default=None, help="ISO datetime, 'next', or 'now'")
+@click.option("--plan", default=None, help="ISO datetime or 'next'; calendar only, does not publish")
 @click.option("--tag", "tags", multiple=True, help="Tag name (repeatable, auto-created)")
 @click.option("--title", default=None)
 @click.option("--media", default=None, help="Comma-separated media IDs")
 @click.option("--share/--no-share", default=False)
 @click.option("--reply-to", default=None, help="URL of tweet to reply to")
 @click.option("--scratchpad", default=None, help="Internal notes (not published)")
-@click.option("--qrt", default=None, help="Quote-retweet URL")
+@click.option("--qrt", "--quote-post-url", "qrt", default=None, help="Quote-post URL (X only)")
 @click.option("--threadify/--no-threadify", default=False)
 @click.option("--auto-retweet/--no-auto-retweet", default=None)
 @click.option("--auto-plug/--no-auto-plug", default=None)
@@ -434,19 +484,29 @@ def recent(limit, since, until_date, output_format, api_key, account, use_text, 
 @click.option("--mastodon", is_flag=True)
 @click.option("--all", "all_platforms", is_flag=True, help="Post to all connected platforms")
 @click.option("--community", default=None, help="X community ID")
+@click.option("--platform", default=None, help="Comma-separated target platforms")
+@click.option("--substack", is_flag=True, help="Enable Substack Notes")
+@click.option("--content-markdown", default=None, help="X Article markdown (requires --platform x_article)")
+@click.option("--cover-media-id", default=None, help="X Article cover media ID")
+@click.option("--paid-partnership", is_flag=True, help="Add X paid-partnership disclosure")
+@click.option("--made-with-ai", is_flag=True, help="Add X AI disclosure")
+@click.option("--hide-link-preview", is_flag=True, help="Hide link preview on LinkedIn, Threads, Substack")
 @shared_options
 @error_handler
 def draft(
-    text, input_file, schedule, tags, title, media, share, reply_to, scratchpad,
+    text, input_file, schedule, plan, tags, title, media, share, reply_to, scratchpad,
     qrt, threadify, auto_retweet, auto_plug,
-    linkedin, threads, bluesky, mastodon, all_platforms, community,
+    linkedin, threads, bluesky, mastodon, all_platforms, community, platform, substack,
+    content_markdown, cover_media_id, paid_partnership, made_with_ai, hide_link_preview,
     api_key, account, use_text, use_json, quiet, debug,
 ):
     """Create a draft post."""
     if input_file:
         with open(input_file, encoding="utf-8") as fh:
             text = fh.read().strip()
-    if not text:
+    if schedule and plan:
+        raise TypefullyError("--schedule and --plan are mutually exclusive", code="invalid_input")
+    if not text and not content_markdown:
         raise TypefullyError(
             "No text provided", code="invalid_input",
             hint="Pass text as argument or use --file",
@@ -460,21 +520,10 @@ def draft(
     with client:
         ssid = _resolve_account_id(client, account, cfg)
 
-        # All-platforms: fetch connected platforms and enable them
-        if all_platforms:
-            ss_data = client.get_social_set(ssid)
-            connected = ss_data.get("platforms", {})
-            for p_name in connected:
-                if p_name == "x":
-                    continue  # already enabled by default
-                if p_name == "linkedin":
-                    linkedin = True
-                elif p_name == "threads":
-                    threads = True
-                elif p_name == "bluesky":
-                    bluesky = True
-                elif p_name == "mastodon":
-                    mastodon = True
+        target_platforms = _resolve_platforms(
+            client, ssid, platform, linkedin=linkedin, threads=threads, bluesky=bluesky,
+            mastodon=mastodon, substack=substack, all_platforms=all_platforms,
+        )
 
         # Tag auto-creation
         if tags:
@@ -482,12 +531,14 @@ def draft(
                 console.warning(w)
 
         payload = _build_draft_payload(
-            posts_text=[text], schedule=schedule, tags=list(tags),
+            posts_text=[text] if text else [], schedule=schedule, plan=plan, tags=list(tags),
             title=title, media=media, share=share, reply_to=reply_to,
             scratchpad=scratchpad, threadify=threadify,
             auto_retweet=auto_retweet, auto_plug=auto_plug,
-            linkedin=linkedin, threads_flag=threads, bluesky=bluesky, mastodon=mastodon,
-            quote_post_url=qrt, community=community,
+            quote_post_url=qrt, community=community, platforms=target_platforms,
+            content_markdown=content_markdown, cover_media_id=cover_media_id,
+            paid_partnership=paid_partnership, made_with_ai=made_with_ai,
+            hide_link_preview=hide_link_preview,
         )
 
         console.status("Creating draft...")
@@ -507,7 +558,7 @@ def draft(
 @click.option("--share/--no-share", default=False)
 @click.option("--reply-to", default=None)
 @click.option("--scratchpad", default=None)
-@click.option("--qrt", default=None)
+@click.option("--qrt", "--quote-post-url", "qrt", default=None, help="Quote-post URL (X only)")
 @click.option("--auto-retweet/--no-auto-retweet", default=None)
 @click.option("--auto-plug/--no-auto-plug", default=None)
 @click.option("--linkedin", is_flag=True)
@@ -516,12 +567,18 @@ def draft(
 @click.option("--mastodon", is_flag=True)
 @click.option("--all", "all_platforms", is_flag=True, help="Post to all connected platforms")
 @click.option("--community", default=None, help="X community ID")
+@click.option("--platform", default=None, help="Comma-separated target platforms")
+@click.option("--substack", is_flag=True, help="Enable Substack Notes")
+@click.option("--paid-partnership", is_flag=True, help="Add X paid-partnership disclosure")
+@click.option("--made-with-ai", is_flag=True, help="Add X AI disclosure")
+@click.option("--hide-link-preview", is_flag=True, help="Hide link preview on LinkedIn, Threads, Substack")
 @shared_options
 @error_handler
 def thread(
     posts, schedule, tags, title, media, share, reply_to, scratchpad,
     qrt, auto_retweet, auto_plug,
-    linkedin, threads, bluesky, mastodon, all_platforms, community,
+    linkedin, threads, bluesky, mastodon, all_platforms, community, platform, substack,
+    paid_partnership, made_with_ai, hide_link_preview,
     api_key, account, use_text, use_json, quiet, debug,
 ):
     """Create a multi-post thread. Provide 2+ posts as separate arguments."""
@@ -544,21 +601,10 @@ def thread(
 
         posts_list = list(posts)
 
-        # All-platforms: fetch connected platforms and enable them
-        if all_platforms:
-            ss_data = client.get_social_set(ssid)
-            connected = ss_data.get("platforms", {})
-            for p_name in connected:
-                if p_name == "x":
-                    continue  # already enabled by default
-                if p_name == "linkedin":
-                    linkedin = True
-                elif p_name == "threads":
-                    threads = True
-                elif p_name == "bluesky":
-                    bluesky = True
-                elif p_name == "mastodon":
-                    mastodon = True
+        target_platforms = _resolve_platforms(
+            client, ssid, platform, linkedin=linkedin, threads=threads, bluesky=bluesky,
+            mastodon=mastodon, substack=substack, all_platforms=all_platforms,
+        )
 
         if tags:
             for w in client.ensure_tags(ssid, list(tags)):
@@ -569,8 +615,9 @@ def thread(
             title=title, media=media, share=share, reply_to=reply_to,
             scratchpad=scratchpad, threadify=False,
             auto_retweet=auto_retweet, auto_plug=auto_plug,
-            linkedin=linkedin, threads_flag=threads, bluesky=bluesky, mastodon=mastodon,
-            quote_post_url=qrt, community=community,
+            quote_post_url=qrt, community=community, platforms=target_platforms,
+            paid_partnership=paid_partnership, made_with_ai=made_with_ai,
+            hide_link_preview=hide_link_preview,
         )
 
         console.status(f"Creating {len(posts_list)}-post thread...")
@@ -583,15 +630,20 @@ def thread(
 
 @cli.command()
 @click.argument("draft_id")
+@click.option(
+    "--exclude-comment-markers",
+    is_flag=True,
+    help="Return display text without Typefully comment anchors",
+)
 @shared_options
 @error_handler
-def get(draft_id, api_key, account, use_text, use_json, quiet, debug):
+def get(draft_id, exclude_comment_markers, api_key, account, use_text, use_json, quiet, debug):
     """View a specific draft."""
     client, console, cfg = _get_client_and_console(api_key, quiet, debug=debug)
     use_text = _resolve_text_mode(use_text, use_json, cfg)
     with client:
         ssid = _resolve_account_id(client, account, cfg)
-        data = client.get_draft(ssid, draft_id)
+        data = client.get_draft(ssid, draft_id, exclude_comment_markers=exclude_comment_markers)
         _output(data, use_text, fmt.print_draft)
 
 
@@ -632,7 +684,9 @@ def open_draft(draft_id, api_key, account, use_text, use_json, quiet, debug):
 @cli.command()
 @click.argument("draft_id")
 @click.argument("text", required=False, default=None)
+@click.option("--file", "input_file", default=None, type=click.Path(exists=True))
 @click.option("--schedule", default=None)
+@click.option("--plan", default=None)
 @click.option("--tag", "tags", multiple=True)
 @click.option("--title", default=None)
 @click.option("--share/--unshare", "share_flag", default=None)
@@ -642,17 +696,34 @@ def open_draft(draft_id, api_key, account, use_text, use_json, quiet, debug):
 @click.option("--media", default=None)
 @click.option("--append", "append_posts", is_flag=True,
               help="Append posts to existing thread instead of replacing")
+@click.option("--platform", default=None, help="Comma-separated target platforms")
+@click.option("--content-markdown", default=None, help="X Article markdown")
+@click.option("--cover-media-id", default=None, help="X Article cover media ID")
+@click.option("--paid-partnership", is_flag=True)
+@click.option("--made-with-ai", is_flag=True)
+@click.option("--hide-link-preview", is_flag=True)
+@click.option("--qrt", "--quote-post-url", "qrt", default=None, help="Quote-post URL (X only)")
+@click.option("--force-overwrite-comments", is_flag=True)
+@click.option("--exclude-comment-markers", is_flag=True)
 @shared_options
 @error_handler
 def update(
-    draft_id, text, schedule, tags, title, share_flag, scratchpad,
-    auto_retweet, auto_plug, media, append_posts,
+    draft_id, text, input_file, schedule, plan, tags, title, share_flag, scratchpad,
+    auto_retweet, auto_plug, media, append_posts, platform, content_markdown, cover_media_id,
+    paid_partnership, made_with_ai, hide_link_preview, force_overwrite_comments,
+    exclude_comment_markers, qrt,
     api_key, account, use_text, use_json, quiet, debug,
 ):
     """Update an existing draft. Text supports === for thread post splitting."""
     client, console, cfg = _get_client_and_console(api_key, quiet, debug=debug)
     use_text = _resolve_text_mode(use_text, use_json, cfg)
+    if input_file:
+        with open(input_file, encoding="utf-8") as fh:
+            text = fh.read().strip()
+    if schedule and plan:
+        raise TypefullyError("--schedule and --plan are mutually exclusive", code="invalid_input")
     schedule = _apply_timezone(schedule, cfg)
+    plan = _apply_timezone(plan, cfg)
     with client:
         ssid = _resolve_account_id(client, account, cfg)
 
@@ -662,7 +733,19 @@ def update(
 
         payload: dict[str, Any] = {}
 
-        if text:
+        if content_markdown is not None or cover_media_id is not None:
+            target_platforms = _resolve_platforms(client, ssid, platform)
+            if target_platforms != ["x_article"]:
+                raise TypefullyError(
+                    "X Article updates require --platform x_article", code="invalid_input"
+                )
+            article: dict[str, Any] = {}
+            if content_markdown is not None:
+                article["content_markdown"] = content_markdown
+            if cover_media_id is not None:
+                article["cover_media_id"] = None if cover_media_id == "null" else cover_media_id
+            payload["platforms"] = {"x_article": article}
+        elif text:
             if append_posts:
                 # Fetch existing draft to get current posts
                 existing = client.get_draft(ssid, draft_id)
@@ -676,14 +759,47 @@ def update(
                 payload["platforms"] = {"x": {"enabled": True, "posts": all_posts}}
             else:
                 parts = [p.strip() for p in text.split("===") if p.strip()]
-                posts = [{"text": p} for p in parts]
-                if media:
-                    posts[0]["media_ids"] = [m.strip() for m in media.split(",")]
-                payload["platforms"] = {"x": {"enabled": True, "posts": posts}}
+                target_platforms = _resolve_platforms(client, ssid, platform)
+                payload["platforms"] = _build_draft_payload(
+                    posts_text=parts, media=media, platforms=target_platforms,
+                    quote_post_url=qrt,
+                    paid_partnership=paid_partnership, made_with_ai=made_with_ai,
+                    hide_link_preview=hide_link_preview,
+                )["platforms"]
         elif media:
             payload["platforms"] = {
                 "x": {"enabled": True, "posts": [{"media_ids": [m.strip() for m in media.split(",")]}]}
             }
+        elif qrt or paid_partnership or made_with_ai or hide_link_preview:
+            existing = client.get_draft(ssid, draft_id)
+            requested = _resolve_platforms(client, ssid, platform) if platform else None
+            existing_platforms = existing.get("platforms", {})
+            target_platforms = requested or [
+                name for name, config in existing_platforms.items()
+                if name in POST_PLATFORMS and isinstance(config, dict) and config.get("enabled")
+            ]
+            if not target_platforms:
+                raise TypefullyError("Draft has no editable post platforms", code="invalid_input")
+            payload["platforms"] = {}
+            for name in target_platforms:
+                source_posts = existing_platforms.get(name, {}).get("posts", [])
+                posts = [{k: v for k, v in post.items() if k in {
+                    "text", "media_ids", "quote_post_url", "paid_partnership", "made_with_ai", "hide_link_preview"
+                }} for post in source_posts]
+                if not posts:
+                    continue
+                if name == "x":
+                    for post in posts:
+                        if qrt:
+                            post["quote_post_url"] = qrt
+                        if paid_partnership:
+                            post["paid_partnership"] = True
+                        if made_with_ai:
+                            post["made_with_ai"] = True
+                if name in LINK_PREVIEW_PLATFORMS and hide_link_preview:
+                    for post in posts:
+                        post["hide_link_preview"] = True
+                payload["platforms"][name] = {"enabled": True, "posts": posts}
 
         if share_flag is True:
             payload["share"] = True
@@ -707,14 +823,26 @@ def update(
             payload["publish_at"] = "now"
         elif schedule:
             payload["publish_at"] = schedule
+        if plan == "next":
+            payload["plan_at"] = "next-free-slot"
+        elif plan == "null":
+            payload["plan_at"] = None
+        elif plan:
+            payload["plan_at"] = plan
 
         if tags:
             payload["tags"] = list(tags)
         if title:
             payload["draft_title"] = title
+        if force_overwrite_comments:
+            payload["force_overwrite_comments"] = True
+        if not payload:
+            raise TypefullyError("No update fields provided", code="invalid_input")
 
         console.status(f"Updating draft {draft_id}...")
-        data = client.update_draft(ssid, draft_id, payload)
+        data = client.update_draft(
+            ssid, draft_id, payload, exclude_comment_markers=exclude_comment_markers
+        )
         _output(data, use_text, fmt.print_draft_short)
 
 
@@ -998,6 +1126,26 @@ def analytics(platform, start_date, end_date, include_replies, limit, offset,
         _output(data, use_text, fmt.print_analytics)
 
 
+@cli.command("followers")
+@click.option("--platform", default="x", help="Platform: x (default)")
+@click.option("--start-date", default="", help="Start date YYYY-MM-DD")
+@click.option("--end-date", default="", help="End date YYYY-MM-DD")
+@shared_options
+@error_handler
+def followers(platform, start_date, end_date, api_key, account, use_text, use_json, quiet, debug):
+    """Show follower analytics for a platform."""
+    start_date = _validate_date(start_date, "--start-date")
+    end_date = _validate_date(end_date, "--end-date")
+    client, console, cfg = _get_client_and_console(api_key, quiet, debug=debug)
+    use_text = _resolve_text_mode(use_text, use_json, cfg)
+    with client:
+        ssid = _resolve_account_id(client, account, cfg)
+        data = client.get_follower_analytics(
+            ssid, platform=platform, start_date=start_date, end_date=end_date
+        )
+        _output(data, use_text)
+
+
 # --- queue ---
 
 
@@ -1075,6 +1223,136 @@ def linkedin_resolve(url, api_key, account, use_text, use_json, quiet, debug):
         _output(data, use_text, fmt.print_linkedin_resolve)
 
 
+# --- comments ---
+
+
+@cli.group()
+def comments():
+    """Manage review comment threads on a draft."""
+
+
+@comments.command("list")
+@click.argument("draft_id")
+@click.option("--platform", default=None)
+@click.option("--status", "comment_status", default="unresolved")
+@click.option("-n", "--limit", default=10, type=int)
+@click.option("--offset", default=0, type=int)
+@shared_options
+@error_handler
+def comments_list(draft_id, platform, comment_status, limit, offset,
+                  api_key, account, use_text, use_json, quiet, debug):
+    """List comment threads for a draft."""
+    _validate_limit(limit)
+    client, console, cfg = _get_client_and_console(api_key, quiet, debug=debug)
+    use_text = _resolve_text_mode(use_text, use_json, cfg)
+    with client:
+        ssid = _resolve_account_id(client, account, cfg)
+        params: dict[str, Any] = {"limit": limit, "offset": offset}
+        if platform:
+            params["platform"] = platform
+        if comment_status:
+            params["status"] = comment_status
+        _output(client.list_comment_threads(ssid, draft_id, **params), use_text)
+
+
+@comments.command("create")
+@click.argument("draft_id")
+@click.option("--selected-text", required=True)
+@click.option("--text", "comment_text", required=True)
+@click.option("--post-index", type=int, default=None)
+@click.option("--occurrence", type=int, default=None)
+@click.option("--platform", default=None)
+@shared_options
+@error_handler
+def comments_create(draft_id, selected_text, comment_text, post_index, occurrence, platform,
+                    api_key, account, use_text, use_json, quiet, debug):
+    """Create a review comment anchored to draft text."""
+    if platform == "x_article":
+        if post_index not in (None, 0):
+            raise TypefullyError("--post-index must be 0 for x_article", code="invalid_input")
+    elif post_index is None or post_index < 0:
+        raise TypefullyError("--post-index must be a non-negative integer", code="invalid_input")
+    if occurrence is not None and occurrence < 0:
+        raise TypefullyError("--occurrence must be a non-negative integer", code="invalid_input")
+    payload: dict[str, Any] = {"selected_text": selected_text, "text": comment_text}
+    if platform:
+        payload["platform"] = platform
+    if platform != "x_article":
+        payload["post_index"] = post_index
+    if occurrence is not None:
+        payload["occurrence"] = occurrence
+    client, console, cfg = _get_client_and_console(api_key, quiet, debug=debug)
+    use_text = _resolve_text_mode(use_text, use_json, cfg)
+    with client:
+        ssid = _resolve_account_id(client, account, cfg)
+        _output(client.create_comment_thread(ssid, draft_id, payload), use_text)
+
+
+@comments.command("reply")
+@click.argument("draft_id")
+@click.argument("thread_id")
+@click.option("--text", "comment_text", required=True)
+@shared_options
+@error_handler
+def comments_reply(draft_id, thread_id, comment_text, api_key, account, use_text, use_json, quiet, debug):
+    """Reply to a review comment thread."""
+    client, console, cfg = _get_client_and_console(api_key, quiet, debug=debug)
+    use_text = _resolve_text_mode(use_text, use_json, cfg)
+    with client:
+        ssid = _resolve_account_id(client, account, cfg)
+        _output(client.reply_to_comment_thread(ssid, draft_id, thread_id, comment_text), use_text)
+
+
+@comments.command("resolve")
+@click.argument("draft_id")
+@click.argument("thread_id")
+@shared_options
+@error_handler
+def comments_resolve(draft_id, thread_id, api_key, account, use_text, use_json, quiet, debug):
+    """Resolve a review comment thread."""
+    client, console, cfg = _get_client_and_console(api_key, quiet, debug=debug)
+    use_text = _resolve_text_mode(use_text, use_json, cfg)
+    with client:
+        ssid = _resolve_account_id(client, account, cfg)
+        _output(client.resolve_comment_thread(ssid, draft_id, thread_id), use_text)
+
+
+@comments.command("update")
+@click.argument("draft_id")
+@click.argument("thread_id")
+@click.argument("comment_id")
+@click.option("--text", "comment_text", required=True)
+@shared_options
+@error_handler
+def comments_update(draft_id, thread_id, comment_id, comment_text,
+                    api_key, account, use_text, use_json, quiet, debug):
+    """Update a comment written by current user."""
+    client, console, cfg = _get_client_and_console(api_key, quiet, debug=debug)
+    use_text = _resolve_text_mode(use_text, use_json, cfg)
+    with client:
+        ssid = _resolve_account_id(client, account, cfg)
+        _output(client.update_comment(ssid, draft_id, thread_id, comment_id, comment_text), use_text)
+
+
+@comments.command("delete")
+@click.argument("draft_id")
+@click.argument("thread_id")
+@click.argument("comment_id", required=False)
+@shared_options
+@error_handler
+def comments_delete(draft_id, thread_id, comment_id, api_key, account, use_text, use_json, quiet, debug):
+    """Delete a comment, or entire comment thread when comment ID is omitted."""
+    client, console, cfg = _get_client_and_console(api_key, quiet, debug=debug)
+    use_text = _resolve_text_mode(use_text, use_json, cfg)
+    with client:
+        ssid = _resolve_account_id(client, account, cfg)
+        if comment_id:
+            client.delete_comment(ssid, draft_id, thread_id, comment_id)
+        else:
+            client.delete_comment_thread(ssid, draft_id, thread_id)
+        _output({"deleted": comment_id or thread_id, "type": "comment" if comment_id else "thread"}, use_text)
+
+
 # --- publish ---
 
 
@@ -1115,6 +1393,24 @@ def schedule_cmd(draft_id, schedule_time, api_key, account, use_text, use_json, 
         _output(data, use_text, fmt.print_draft_short)
 
 
+@cli.command("plan")
+@click.argument("draft_id")
+@click.option("--time", "plan_time", required=True, help="ISO datetime or 'next'")
+@shared_options
+@error_handler
+def plan_cmd(draft_id, plan_time, api_key, account, use_text, use_json, quiet, debug):
+    """Place a draft on calendar without scheduling publication."""
+    client, console, cfg = _get_client_and_console(api_key, quiet, debug=debug)
+    use_text = _resolve_text_mode(use_text, use_json, cfg)
+    plan_time = _apply_timezone(plan_time, cfg) or plan_time
+    with client:
+        ssid = _resolve_account_id(client, account, cfg)
+        plan_at = "next-free-slot" if plan_time == "next" else plan_time
+        console.status(f"Planning draft {draft_id}...")
+        data = client.update_draft(ssid, draft_id, {"plan_at": plan_at})
+        _output(data, use_text, fmt.print_draft_short)
+
+
 # --- media-status ---
 
 
@@ -1138,6 +1434,7 @@ def media_status(media_id, api_key, account, use_text, use_json, quiet, debug):
 def _build_draft_payload(
     posts_text: list[str],
     schedule: str | None = None,
+    plan: str | None = None,
     tags: list[str] | None = None,
     title: str | None = None,
     media: str | None = None,
@@ -1147,36 +1444,75 @@ def _build_draft_payload(
     threadify: bool = False,
     auto_retweet: bool | None = None,
     auto_plug: bool | None = None,
-    linkedin: bool = False,
-    threads_flag: bool = False,
-    bluesky: bool = False,
-    mastodon: bool = False,
     quote_post_url: str | None = None,
     community: str | None = None,
+    platforms: list[str] | None = None,
+    content_markdown: str | None = None,
+    cover_media_id: str | None = None,
+    paid_partnership: bool = False,
+    made_with_ai: bool = False,
+    hide_link_preview: bool = False,
 ) -> dict:
     """Build a draft creation payload from CLI args."""
-    posts = [{"text": t} for t in posts_text]
+    target_platforms = platforms or ["x"]
+    if "x_article" in target_platforms:
+        if len(target_platforms) != 1 or not content_markdown or posts_text:
+            raise TypefullyError(
+                "x_article requires only --platform x_article and --content-markdown",
+                code="invalid_input",
+            )
+        article: dict[str, Any] = {"content_markdown": content_markdown}
+        if cover_media_id is not None:
+            article["cover_media_id"] = None if cover_media_id == "null" else cover_media_id
+        platform_payload: dict[str, Any] = {"x_article": article}
+    else:
+        if content_markdown or cover_media_id is not None:
+            raise TypefullyError(
+                "--content-markdown and --cover-media-id require --platform x_article",
+                code="invalid_input",
+            )
+        if not posts_text:
+            raise TypefullyError("No text provided", code="invalid_input")
+        if "substack" in target_platforms and len(posts_text) > 1:
+            raise TypefullyError(
+                "Substack Notes supports one post per draft; threads are not supported",
+                code="invalid_input",
+            )
+        if (quote_post_url or paid_partnership or made_with_ai or reply_to or community) and "x" not in target_platforms:
+            raise TypefullyError("X-only options require x in --platform", code="invalid_input")
+        if hide_link_preview and not (set(target_platforms) & LINK_PREVIEW_PLATFORMS):
+            raise TypefullyError(
+                "--hide-link-preview requires LinkedIn, Threads, or Substack",
+                code="invalid_input",
+            )
 
-    if media:
-        posts[0]["media_ids"] = [m.strip() for m in media.split(",")]
+        base_posts = [{"text": t} for t in posts_text]
+        if media:
+            base_posts[0]["media_ids"] = [m.strip() for m in media.split(",")]
+        platform_payload = {}
+        for name in target_platforms:
+            posts = [dict(post) for post in base_posts]
+            if name == "x":
+                for post in posts:
+                    if quote_post_url:
+                        post["quote_post_url"] = quote_post_url
+                    if paid_partnership:
+                        post["paid_partnership"] = True
+                    if made_with_ai:
+                        post["made_with_ai"] = True
+            if name in LINK_PREVIEW_PLATFORMS and hide_link_preview:
+                for post in posts:
+                    post["hide_link_preview"] = True
+            config: dict[str, Any] = {"enabled": True, "posts": posts}
+            if name == "x" and (reply_to or community):
+                config["settings"] = {}
+                if reply_to:
+                    config["settings"]["reply_to_url"] = reply_to
+                if community:
+                    config["settings"]["community_id"] = community
+            platform_payload[name] = config
 
-    if quote_post_url:
-        posts[0]["quote_post_url"] = quote_post_url
-
-    x_platform: dict[str, Any] = {"enabled": True, "posts": posts}
-    if reply_to:
-        x_platform["settings"] = {"reply_to_url": reply_to}
-    if community:
-        if "settings" not in x_platform:
-            x_platform["settings"] = {}
-        x_platform["settings"]["community_id"] = community
-
-    platforms: dict[str, Any] = {"x": x_platform}
-    for flag, name in [(linkedin, "linkedin"), (threads_flag, "threads"), (bluesky, "bluesky"), (mastodon, "mastodon")]:
-        if flag:
-            platforms[name] = {"enabled": True, "posts": posts}
-
-    payload: dict[str, Any] = {"platforms": platforms}
+    payload: dict[str, Any] = {"platforms": platform_payload}
 
     if threadify:
         payload["threadify"] = True
@@ -1199,6 +1535,10 @@ def _build_draft_payload(
         payload["publish_at"] = "now"
     elif schedule:
         payload["publish_at"] = schedule
+    if plan == "next":
+        payload["plan_at"] = "next-free-slot"
+    elif plan:
+        payload["plan_at"] = plan
 
     if tags:
         payload["tags"] = tags
