@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "typefully-cli"
-version = "0.2.0"
+version = "0.2.1"
 description = "CLI for the Typefully API -- manage drafts, threads, and publishing from the terminal"
 readme = "README.md"
 license = "MIT"

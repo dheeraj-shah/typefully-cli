@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.2.1 (2026-08-21)
+
+- Fix trusted PyPI publishing workflow action pin.
+
 ## 0.2.0 (2026-08-21)
 
 Sync with Typefully's official MCP and Agent Skill surface.
