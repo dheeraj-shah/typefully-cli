@@ -1,8 +1,9 @@
-# Minimal usage collector (not deployed)
+# Minimal usage collector
 
-Owned Cloudflare Worker + dedicated D1 database proposal. No active route, database
-binding, credentials, or deployment automation is included. The CLI endpoint stays
-unset until the owner approves the exact recipient and deployment settings.
+Owned Cloudflare Worker + dedicated D1 database. The owner approved the dedicated
+Free-plan deployment on 2026-10-29. See [deployment verification](DEPLOYMENT.md) for
+the exact recipient and checks. No credentials or deployment automation are bundled.
+CLI publication/release remains a separate approval.
 
 ## Data contract
 
