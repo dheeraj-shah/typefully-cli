@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.3.0 (2026-10-29)
 
 - Add schema-backed `draft-payload` request-file input with offline validation, per-post fields and null/false clearing; keep `--json` as output-only.
 - Add X reply/subscriber/community flags, LinkedIn first-comment/reshare fields, upload alt text and media metadata updates.
