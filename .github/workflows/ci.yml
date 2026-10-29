@@ -29,3 +29,10 @@ jobs:
 
       - name: Test
         run: python -m pytest tests/ -v
+
+  collector:
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0
+      - name: Test collector (mocked storage, no network)
+        run: node --test collector/worker.test.mjs

@@ -1,0 +1,15 @@
+{
+  "name": "typefully-cli-telemetry",
+  "main": "worker.mjs",
+  "compatibility_date": "2026-10-29",
+  "workers_dev": false,
+  "preview_urls": false,
+  "logpush": false,
+  "observability": {
+    "enabled": false,
+    "logs": { "enabled": false, "invocation_logs": false },
+    "traces": { "enabled": false }
+  }
+  // After explicit deployment approval, add a dedicated D1 binding named COUNTS,
+  // with the approved database_name/database_id, and enable the approved route.
+}
