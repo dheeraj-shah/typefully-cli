@@ -1,5 +1,11 @@
 # Changelog
 
+## Unreleased
+
+- Repair upstream monitoring: validate official public sources, expose fetch failures, deduplicate reports, and advance baselines only after successful reporting.
+- Pin CI to Ubuntu 22.04 to retain Python 3.9 compatibility; isolate Fish completion tests from the real home directory.
+- Extend `--quote-post-url` / `--qrt` to the documented Threads, Bluesky, Mastodon and Substack quote targets.
+
 ## 0.2.1 (2026-08-21)
 
 - Fix trusted PyPI publishing workflow action pin.

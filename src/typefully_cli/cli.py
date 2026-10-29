@@ -10,6 +10,7 @@ import os
 import sys
 from functools import wraps
 from typing import Any
+from urllib.parse import urlsplit
 
 import click
 
@@ -150,6 +151,46 @@ def _apply_timezone(schedule: str | None, config: Config) -> str | None:
 
 POST_PLATFORMS = {"x", "linkedin", "threads", "bluesky", "mastodon", "substack"}
 LINK_PREVIEW_PLATFORMS = {"linkedin", "threads", "substack"}
+
+
+def _quote_platform(url: str, platforms: list[str]) -> str:
+    """Route quotes using Typefully's official agent CLI host/path rules."""
+    try:
+        parsed = urlsplit(url)
+        host = (parsed.hostname or "").lower()
+    except ValueError:
+        raise TypefullyError("Quote URL must be a full HTTP(S) post URL", code="invalid_input")
+    if not host or parsed.scheme not in {"http", "https"}:
+        raise TypefullyError("Quote URL must be a full HTTP(S) post URL", code="invalid_input")
+    known = None
+    for platform, domains in {
+        "x": ("x.com", "twitter.com"),
+        "threads": ("threads.net", "threads.com"),
+        "bluesky": ("bsky.app",),
+        "substack": ("substack.com",),
+    }.items():
+        if any(host == domain or host.endswith("." + domain) for domain in domains):
+            known = platform
+            break
+    if not known and "substack" in platforms and (
+        "/note/c-" in parsed.path or "/p/" in parsed.path
+    ):
+        known = "substack"
+    if known:
+        if known not in platforms:
+            raise TypefullyError(
+                f"Quote URL requires {known} in --platform", code="invalid_input"
+            )
+        return known
+    candidates = [p for p in platforms if p in POST_PLATFORMS and p != "linkedin"]
+    if "mastodon" in candidates:
+        return "mastodon"
+    if len(candidates) == 1:
+        return candidates[0]
+    raise TypefullyError(
+        "Quote URL has no unambiguous target; select X, Threads, Bluesky, Mastodon, or Substack",
+        code="invalid_input",
+    )
 
 
 def _resolve_platforms(
@@ -474,7 +515,10 @@ def recent(limit, since, until_date, output_format, api_key, account, use_text, 
 @click.option("--share/--no-share", default=False)
 @click.option("--reply-to", default=None, help="URL of tweet to reply to")
 @click.option("--scratchpad", default=None, help="Internal notes (not published)")
-@click.option("--qrt", "--quote-post-url", "qrt", default=None, help="Quote-post URL (X only)")
+@click.option(
+    "--qrt", "--quote-post-url", "qrt", default=None,
+    help="Quote URL for X, Threads, Bluesky, Mastodon, or Substack",
+)
 @click.option("--threadify/--no-threadify", default=False)
 @click.option("--auto-retweet/--no-auto-retweet", default=None)
 @click.option("--auto-plug/--no-auto-plug", default=None)
@@ -558,7 +602,10 @@ def draft(
 @click.option("--share/--no-share", default=False)
 @click.option("--reply-to", default=None)
 @click.option("--scratchpad", default=None)
-@click.option("--qrt", "--quote-post-url", "qrt", default=None, help="Quote-post URL (X only)")
+@click.option(
+    "--qrt", "--quote-post-url", "qrt", default=None,
+    help="Quote URL for X, Threads, Bluesky, Mastodon, or Substack",
+)
 @click.option("--auto-retweet/--no-auto-retweet", default=None)
 @click.option("--auto-plug/--no-auto-plug", default=None)
 @click.option("--linkedin", is_flag=True)
@@ -702,7 +749,10 @@ def open_draft(draft_id, api_key, account, use_text, use_json, quiet, debug):
 @click.option("--paid-partnership", is_flag=True)
 @click.option("--made-with-ai", is_flag=True)
 @click.option("--hide-link-preview", is_flag=True)
-@click.option("--qrt", "--quote-post-url", "qrt", default=None, help="Quote-post URL (X only)")
+@click.option(
+    "--qrt", "--quote-post-url", "qrt", default=None,
+    help="Quote URL for X, Threads, Bluesky, Mastodon, or Substack",
+)
 @click.option("--force-overwrite-comments", is_flag=True)
 @click.option("--exclude-comment-markers", is_flag=True)
 @shared_options
@@ -749,14 +799,26 @@ def update(
             if append_posts:
                 # Fetch existing draft to get current posts
                 existing = client.get_draft(ssid, draft_id)
-                existing_posts = []
-                platforms = existing.get("platforms", {})
-                if isinstance(platforms, dict) and "x" in platforms:
-                    existing_posts = platforms["x"].get("posts", [])
+                target_platforms = _resolve_platforms(client, ssid, platform)
                 new_parts = [p.strip() for p in text.split("===") if p.strip()]
-                new_posts = [{"text": p} for p in new_parts]
-                all_posts = existing_posts + new_posts
-                payload["platforms"] = {"x": {"enabled": True, "posts": all_posts}}
+                additions = _build_draft_payload(
+                    posts_text=new_parts, media=media, platforms=target_platforms,
+                    quote_post_url=qrt,
+                    paid_partnership=paid_partnership, made_with_ai=made_with_ai,
+                    hide_link_preview=hide_link_preview,
+                )["platforms"]
+                for name, config in additions.items():
+                    old = existing.get("platforms", {}).get(name, {})
+                    old_posts = old.get("posts", [])
+                    if name == "substack" and old_posts:
+                        raise TypefullyError(
+                            "Substack Notes supports one post per draft; cannot append",
+                            code="invalid_input",
+                        )
+                    config["posts"] = old_posts + config["posts"]
+                    if old.get("settings"):
+                        config["settings"] = old["settings"]
+                payload["platforms"] = additions
             else:
                 parts = [p.strip() for p in text.split("===") if p.strip()]
                 target_platforms = _resolve_platforms(client, ssid, platform)
@@ -766,7 +828,7 @@ def update(
                     paid_partnership=paid_partnership, made_with_ai=made_with_ai,
                     hide_link_preview=hide_link_preview,
                 )["platforms"]
-        elif media:
+        elif media and not qrt:
             payload["platforms"] = {
                 "x": {"enabled": True, "posts": [{"media_ids": [m.strip() for m in media.split(",")]}]}
             }
@@ -780,18 +842,32 @@ def update(
             ]
             if not target_platforms:
                 raise TypefullyError("Draft has no editable post platforms", code="invalid_input")
+            quote_platform = _quote_platform(qrt, target_platforms) if qrt else None
             payload["platforms"] = {}
             for name in target_platforms:
+                if qrt and name != quote_platform and not (
+                    (name == "x" and (paid_partnership or made_with_ai))
+                    or (name in LINK_PREVIEW_PLATFORMS and hide_link_preview)
+                ):
+                    continue
                 source_posts = existing_platforms.get(name, {}).get("posts", [])
                 posts = [{k: v for k, v in post.items() if k in {
-                    "text", "media_ids", "quote_post_url", "paid_partnership", "made_with_ai", "hide_link_preview"
+                    "text", "media_ids", "quote_post_url", "paid_partnership", "made_with_ai",
+                    "hide_link_preview", "subscribers_only", "reply_settings"
                 }} for post in source_posts]
                 if not posts:
+                    if name == quote_platform:
+                        raise TypefullyError(
+                            "Cannot quote on a platform with no existing posts", code="invalid_input"
+                        )
                     continue
+                if name == quote_platform:
+                    for post in posts if name == "x" else posts[:1]:
+                        post["quote_post_url"] = qrt
+                    if media:
+                        posts[0]["media_ids"] = [m.strip() for m in media.split(",") if m.strip()]
                 if name == "x":
                     for post in posts:
-                        if qrt:
-                            post["quote_post_url"] = qrt
                         if paid_partnership:
                             post["paid_partnership"] = True
                         if made_with_ai:
@@ -800,6 +876,8 @@ def update(
                     for post in posts:
                         post["hide_link_preview"] = True
                 payload["platforms"][name] = {"enabled": True, "posts": posts}
+                if existing_platforms.get(name, {}).get("settings"):
+                    payload["platforms"][name]["settings"] = existing_platforms[name]["settings"]
 
         if share_flag is True:
             payload["share"] = True
@@ -1455,6 +1533,7 @@ def _build_draft_payload(
 ) -> dict:
     """Build a draft creation payload from CLI args."""
     target_platforms = platforms or ["x"]
+    quote_platform = _quote_platform(quote_post_url, target_platforms) if quote_post_url else None
     if "x_article" in target_platforms:
         if len(target_platforms) != 1 or not content_markdown or posts_text:
             raise TypefullyError(
@@ -1478,7 +1557,7 @@ def _build_draft_payload(
                 "Substack Notes supports one post per draft; threads are not supported",
                 code="invalid_input",
             )
-        if (quote_post_url or paid_partnership or made_with_ai or reply_to or community) and "x" not in target_platforms:
+        if (paid_partnership or made_with_ai or reply_to or community) and "x" not in target_platforms:
             raise TypefullyError("X-only options require x in --platform", code="invalid_input")
         if hide_link_preview and not (set(target_platforms) & LINK_PREVIEW_PLATFORMS):
             raise TypefullyError(
@@ -1492,10 +1571,12 @@ def _build_draft_payload(
         platform_payload = {}
         for name in target_platforms:
             posts = [dict(post) for post in base_posts]
+            if name == quote_platform:
+                # Keep legacy X thread behavior; new quote platforms quote the first post.
+                for post in posts if name == "x" else posts[:1]:
+                    post["quote_post_url"] = quote_post_url
             if name == "x":
                 for post in posts:
-                    if quote_post_url:
-                        post["quote_post_url"] = quote_post_url
                     if paid_partnership:
                         post["paid_partnership"] = True
                     if made_with_ai:
