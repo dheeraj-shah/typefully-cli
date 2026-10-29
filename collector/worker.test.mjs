@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import worker, { CATEGORIES } from './worker.mjs';
+import worker from './worker.mjs';
+const CATEGORIES = ['account', 'drafts', 'publishing', 'media', 'tags', 'analytics', 'comments', 'queue'];
 
 function database(fail = false) {
   const batches = [];

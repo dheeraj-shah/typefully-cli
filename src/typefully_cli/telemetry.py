@@ -1,4 +1,4 @@
-"""Best-effort aggregate usage. No endpoint is active until separately approved."""
+"""Best-effort aggregate usage with a disclosed, maintainer-owned collector."""
 
 from __future__ import annotations
 
@@ -13,8 +13,8 @@ import httpx
 from typefully_cli import __version__
 from typefully_cli.config import Config
 
-# Deliberately empty: configuring the owned collector requires release approval.
-ENDPOINT = ""
+# Maintainer-owned recipient; changing it requires a new visible notice.
+ENDPOINT = "https://typefully-cli-telemetry.dheeraj-personal-site.workers.dev/v1/count"
 NOTICE_REVISION = "1"
 COMMAND_CATEGORIES = {
     "me": "account", "accounts": "account", "account-detail": "account",

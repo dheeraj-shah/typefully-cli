@@ -2,10 +2,12 @@
 
 ## Current status
 
-This implementation is staged, not activated: the compiled collector endpoint is
-empty. No usage telemetry leaves this build. Activation requires a reviewed,
-maintainer-owned endpoint, hosting/logging verification, and a separately approved
-release. There is no third-party analytics SDK.
+The maintainer-owned collector is deployed at
+`https://typefully-cli-telemetry.dheeraj-personal-site.workers.dev/v1/count`.
+This unreleased branch is configured to use it, subject to the notice and opt-out
+rules below. Existing published 0.3.0 installations are unchanged. A package
+release still requires separate approval. There is no third-party analytics SDK.
+See [deployment verification](../collector/DEPLOYMENT.md).
 
 ## What an activated build measures
 

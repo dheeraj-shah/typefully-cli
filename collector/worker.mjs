@@ -1,6 +1,6 @@
 // This collector deliberately never records request headers, IPs, or event-level data.
-export const VERSIONS = new Set(['0.3.0']);
-export const CATEGORIES = new Set(['account', 'drafts', 'publishing', 'media', 'tags', 'analytics', 'comments', 'queue']);
+const VERSIONS = new Set(['0.3.0']);
+const CATEGORIES = new Set(['account', 'drafts', 'publishing', 'media', 'tags', 'analytics', 'comments', 'queue']);
 const MAX_BYTES = 256;
 
 async function readPayload(request) {
