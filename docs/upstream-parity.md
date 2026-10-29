@@ -9,7 +9,7 @@ Reviewed 2026-10-29 against CLI 0.2.1 / main `82fd5948`.
 - [Official MCP guide](https://support.typefully.com/en/articles/13128440-typefully-mcp-server): public capability overview. The MCP endpoint requires authentication and the MCP initialization protocol; unauthenticated `tools/list` is not a valid inventory.
 - [Product changelog](https://typefully.com/changelog): discovery of changes, not evidence that every product feature is exposed through the public API.
 
-This is not a claim of exhaustive or authenticated MCP parity. Do not guess endpoints from product announcements. The previous CLI `--json` flag controlled output only; it was not request-body passthrough. This maintenance adds an explicit `draft-payload` command, described below.
+This is not a claim of exhaustive behavioral parity. An authenticated MCP inventory was subsequently verified below. Do not guess endpoints from product announcements. The previous CLI `--json` flag controlled output only; it was not request-body passthrough. This maintenance adds an explicit `draft-payload` command, described below.
 
 ## Monitor repair
 
@@ -83,7 +83,7 @@ Update payloads containing platform post arrays replace content, rather than mag
 
 ### Remaining boundaries, not fabricated parity
 
-1. **Authenticated MCP inventory unverified.** The public MCP guide describes capabilities but is not a complete `tools/list` result. OAuth-backed inventory and schemas would be needed to establish exact MCP-only gaps; no new authorization or credentials were created in this work.
+1. **Authenticated MCP inventory verified, behavior bounded.** On 2026-10-29, an explicitly authorized one-off local check using existing authentication initialized server `typefully 1.0.0` (protocol `2025-03-26`) and retrieved all 24 tools, with no continuation page. Every tool maps to the public operation matrix above; no additional MCP-only endpoint was found. Draft create/edit bodies match the reviewed public schemas apart from MCP-only `confirm_publish` (default false, marked `x-mcp-only`), which requires explicit confirmation for immediate publication. This field must not be sent to REST. No MCP tools were invoked. Inventory inspection is not an all-platform publishing test.
 2. **Polls:** product announcements are not a writable public API contract. No poll request schema was found in this snapshot, so no guessed endpoint or flags were added.
 3. **Analytics / follower analytics:** existing CLI routes are preserved, but absent from this particular 24-operation public snapshot. Their current contract is unverified here, not automatically declared supported or removed.
 4. **Webhook management:** a webhook event payload schema exists, but no public management operations in the snapshot. Do not infer create/delete subscription endpoints.
@@ -92,3 +92,42 @@ Update payloads containing platform post arrays replace content, rather than mag
 7. **Product/media rollout differences:** product announcements (for example Substack video) can outpace platform guidance. Do not guarantee an account/platform media combination solely from a changelog item.
 
 Weekly maintenance must re-check this entire matrix, implement verified gaps even if they predate the latest diff, update the request snapshot/validator together, and leave unsupported or inaccessible capabilities explicitly marked. A failed source read is degraded monitoring, not evidence of no change.
+
+
+### Authenticated MCP comparison
+
+Inventory names: `get_me`, `list_social_sets`, `get_social_set_details`, `list_drafts`,
+`create_draft`, `get_draft`, `delete_draft`, `edit_draft`, `create_media_upload`,
+`get_media_status`, `update_media`, `list_tags`, `create_tag`, `get_queue_schedule`,
+`queue_put_queue_schedule`, `get_queue`,
+`linkedin_resolve_linkedin_organization_from_url`, `list_comments`, `create_comment`,
+`comments_add_comment_to_thread`, `comments_resolve_thread`, `delete_comment`,
+`update_comment`, `delete_thread`.
+
+Remaining interface/validation differences are explicit rather than silently
+labelled full parity: MCP exposes social-set limit/offset while CLI auto-paginates;
+MCP requires queue start/end dates whereas CLI can defer missing-date errors to the
+server; several comment/tag length, UUID, and queue-rule constraints are validated
+server-side rather than exhaustively by existing CLI convenience commands. Analytics,
+follower analytics and draft `content_filter` were absent from this MCP inventory.
+
+The MCP read-only annotation on `get_queue_schedule` does **not** imply zero state
+changes: its description says an absent schedule is initialized with defaults.
+Exclude that operation from strictly non-mutating checks. MCP deletion annotations
+also do not establish recoverability or replace applicable user authorization.
+
+### Bounded live smoke test
+
+On 2026-10-29, the user explicitly approved a one-off test using existing local
+credentials and selected the destination account. Exact CLI commit
+`fc19975c755661ba48d92d9d4f11ce7ce6ae31fd` created one labelled private, unscheduled
+X draft (201), read it (200), updated dummy text and `reply_settings: "following"`
+(200), verified the update (200), deleted only the new draft (204), and verified
+absence (404). Readbacks remained draft-only, with null scheduling/publication
+fields and no public share URL. No test draft remains. No credentials or private
+account receipts are included in this repository.
+
+This proves that bounded X draft lifecycle against the live service, not live
+publishing, scheduling, media upload, other platforms, or MCP tool execution.
+The normal maintenance workflow remains cloud-only; the local test was separately
+approved because existing authentication was available there, not in the cloud.
