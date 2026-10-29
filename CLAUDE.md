@@ -2,13 +2,15 @@
 
 ## Overview
 
-Python CLI wrapping the Typefully API v2. Agent-first design: JSON output by default, structured errors on stderr, deterministic behavior. 24 Click commands for drafts, threads, batch, media, analytics, queue, LinkedIn, tags, accounts, config, completions.
+Python CLI wrapping the Typefully API v2. Agent-friendly structured JSON output with `--json`, structured errors on stderr, and configurable text output. See `skills/typefully-cli/SKILL.md` for current agent usage and `docs/upstream-parity.md` for evidence and limitations.
 
 ## Architecture
 
 ```
 src/typefully_cli/
-  cli.py        -- 24 Click commands, shared options, error handler, payload builder
+  cli.py        -- Click commands, shared options, error handler, payload builder
+  payloads.py   -- Explicit JSON request input, local schema validation, media metadata
+  request-schemas.json -- Reviewed public create/update schema snapshot
   client.py     -- httpx wrapper over Typefully API v2 (rate-limited, account resolution)
   completions.py -- Shell completions install/show (bash/zsh/fish)
   auth.py       -- API key resolution chain: flag > env > config > 1Password
@@ -29,7 +31,7 @@ src/typefully_cli/
 - **Timezone conversion:** Config `timezone` (IANA name) converts naive schedule datetimes to UTC before API call. Already-tz-aware values pass through unchanged.
 - **Partial failure:** Delete and batch loops catch per-item errors. `_handle_multi_result()` handles the 3-branch contract (all succeed / partial / all fail).
 - **Error sanitization:** `APIError.user_message` property strips raw upstream bodies from stdout payloads. Full details stay on stderr.
-- **API parity:** Tracks all Typefully API v2 endpoints including analytics, queue management, and LinkedIn org resolution.
+- **API parity:** Map each public operation in docs/upstream-parity.md. Do not claim exhaustive MCP parity; analytics and legacy convenience fields are not verified by the current public schema.
 
 ## Dev setup
 
@@ -41,19 +43,15 @@ pip install -e ".[dev]"
 
 ```bash
 python3 -m pytest tests/ -v
-ruff check src/ tests/
+ruff check --isolated --select E4,E7,E9,F --target-version py39 --line-length 100 src/ tests/ scripts/
 ```
 
 ## Auth for live testing
 
-Config at `~/.config/typefully/config.toml`. Test account: BungeeCEO.
-
-```bash
-typefully config set api_key tf_...
-typefully config set default_account BungeeCEO
-typefully config set default_platforms x,linkedin
-typefully config set timezone Asia/Kolkata
-```
+Use existing authorized access from environment/config; never assume an account
+named in documentation is a sandbox. No cloud credential is bundled with this repo.
+Use local `--validate-only` and mocked tests first. Live test writes need explicit
+scope and a verified social set; never publish as part of maintenance tests.
 
 ## Conventions
 

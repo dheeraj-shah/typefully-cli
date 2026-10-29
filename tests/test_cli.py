@@ -851,3 +851,341 @@ class TestAppendFlag:
         assert len(posts) == 2
         assert posts[0]["text"] == "Original post"
         assert posts[1]["text"] == "New post"
+
+
+class TestQuoteParity:
+    @pytest.mark.parametrize("platform,url", [
+        ("x", "https://twitter.com/u/status/1"),
+        ("threads", "https://www.threads.com/@u/post/ABC"),
+        ("threads", "https://threads.net/@u/post/ABC"),
+        ("bluesky", "https://bsky.app/profile/u/post/abc"),
+        ("mastodon", "https://social.example/@u/123"),
+        ("substack", "https://substack.com/@u/note/c-123"),
+        ("substack", "https://publication.example/p/hello"),
+    ])
+    def test_quote_routes_only_to_matching_platform(self, platform, url):
+        payload = _build_draft_payload(
+            posts_text=["Take"], platforms=[platform, "linkedin"], quote_post_url=url,
+        )
+        assert payload["platforms"][platform]["posts"][0]["quote_post_url"] == url
+        assert "quote_post_url" not in payload["platforms"]["linkedin"]["posts"][0]
+
+    @pytest.mark.parametrize("platforms,url", [
+        (["linkedin"], "https://x.com/u/status/1"),
+        (["x"], "https://bsky.app/profile/u/post/abc"),
+        (["x", "threads"], "https://unknown.example/post/1"),
+        (["x"], "javascript:alert(1)"),
+        (["x"], "not-a-url"),
+        (["x_article"], "https://x.com/u/status/1"),
+    ])
+    def test_invalid_quote_targets(self, platforms, url):
+        from typefully_cli.exceptions import TypefullyError
+        with pytest.raises(TypefullyError):
+            _build_draft_payload(posts_text=["Take"], platforms=platforms, quote_post_url=url)
+
+    def test_federated_and_custom_domain_routing(self):
+        from typefully_cli.cli import _quote_platform
+        assert _quote_platform("https://pixelfed.example/p/123", ["mastodon"]) == "mastodon"
+        assert _quote_platform("https://pub.example/p/123", ["substack", "mastodon"]) == "substack"
+        assert _quote_platform("https://x.com.evil.example/post/123", ["mastodon"]) == "mastodon"
+
+    def test_thread_quote_placement_preserves_legacy_x(self):
+        for platform, url in [("x", "https://x.com/u/status/1"),
+                              ("bluesky", "https://bsky.app/profile/u/post/abc")]:
+            posts = _build_draft_payload(
+                posts_text=["First", "Second"], platforms=[platform], quote_post_url=url,
+            )["platforms"][platform]["posts"]
+            assert posts[0]["quote_post_url"] == url
+            assert ("quote_post_url" in posts[1]) is (platform == "x")
+
+    @pytest.mark.parametrize("flag", ["--qrt", "--quote-post-url"])
+    @pytest.mark.parametrize("mode", ["create", "replace", "metadata", "append"])
+    def test_cli_quote_modes(self, runner, mock_config, flag, mode):
+        url = "https://bsky.app/profile/u/post/abc"
+        original = {"text": "Original", "quote_post_url": "https://bsky.app/profile/u/post/old"}
+        with patch("typefully_cli.config._config_path", return_value=mock_config):
+            with patch("typefully_cli.cli.TypefullyClient") as MockClient:
+                client = _make_client_mock(MockClient)
+                client.get_draft.return_value = {"platforms": {
+                    "bluesky": {"enabled": True, "posts": [original]},
+                }}
+                client.create_draft.return_value = {"id": 1}
+                client.update_draft.return_value = {"id": 1}
+                if mode == "create":
+                    args = ["draft", "New"]
+                else:
+                    args = ["update", "1"] + ([] if mode == "metadata" else ["New"])
+                    if mode == "append":
+                        args += ["--append"]
+                result = runner.invoke(cli, args + ["--platform", "bluesky", flag, url])
+        assert result.exit_code == 0, result.output
+        call = client.create_draft.call_args if mode == "create" else client.update_draft.call_args
+        payload = call[0][1 if mode == "create" else 2]
+        posts = payload["platforms"]["bluesky"]["posts"]
+        assert posts[-1]["quote_post_url"] == url
+        if mode == "append":
+            assert posts[0] == original
+        if mode == "metadata":
+            assert posts[0]["text"] == "Original"
+
+    def test_metadata_quote_does_not_rewrite_other_platforms(self, runner, mock_config):
+        with patch("typefully_cli.config._config_path", return_value=mock_config):
+            with patch("typefully_cli.cli.TypefullyClient") as MockClient:
+                client = _make_client_mock(MockClient)
+                client.get_draft.return_value = {"platforms": {
+                    "x": {"enabled": True, "posts": [{"text": "X", "reply_settings": "verified"}],
+                          "settings": {"community_id": "123"}},
+                    "linkedin": {"enabled": True, "posts": [{"text": "LI"}]},
+                }}
+                client.update_draft.return_value = {"id": 1}
+                result = runner.invoke(cli, ["update", "1", "--qrt", "https://x.com/u/status/1"])
+        assert result.exit_code == 0, result.output
+        platforms = client.update_draft.call_args[0][2]["platforms"]
+        assert set(platforms) == {"x"}
+        assert platforms["x"]["posts"][0]["reply_settings"] == "verified"
+        assert platforms["x"]["settings"] == {"community_id": "123"}
+
+    def test_append_to_substack_fails_without_mutation(self, runner, mock_config):
+        with patch("typefully_cli.config._config_path", return_value=mock_config):
+            with patch("typefully_cli.cli.TypefullyClient") as MockClient:
+                client = _make_client_mock(MockClient)
+                client.get_draft.return_value = {"platforms": {
+                    "substack": {"enabled": True, "posts": [{"text": "Original"}]},
+                }}
+                result = runner.invoke(cli, ["update", "1", "New", "--append",
+                                             "--platform", "substack", "--quote-post-url",
+                                             "https://substack.com/@u/note/c-123"])
+        assert result.exit_code == 1
+        client.update_draft.assert_not_called()
+
+    @pytest.mark.parametrize("platform,url", [
+        ("bluesky", "https://bsky.app/profile/u/post/abc"),
+        ("x", "https://x.com/u/status/123"),
+    ])
+    def test_media_and_quote_preserve_text_and_platform(self, runner, mock_config, platform, url):
+        with patch("typefully_cli.config._config_path", return_value=mock_config):
+            with patch("typefully_cli.cli.TypefullyClient") as MockClient:
+                client = _make_client_mock(MockClient)
+                client.get_draft.return_value = {"platforms": {
+                    platform: {"enabled": True, "posts": [
+                        {"text": "Original", "media_ids": ["old"]}, {"text": "Second"},
+                    ]},
+                    "linkedin": {"enabled": True, "posts": [{"text": "Unchanged"}]},
+                }}
+                client.update_draft.return_value = {"id": 1}
+                result = runner.invoke(cli, ["update", "1", "--media", "new, second",
+                                             "--platform", platform, "--quote-post-url", url])
+        assert result.exit_code == 0, result.output
+        platforms = client.update_draft.call_args[0][2]["platforms"]
+        assert set(platforms) == {platform}
+        posts = platforms[platform]["posts"]
+        assert posts[0]["text"] == "Original"
+        assert posts[0]["media_ids"] == ["new", "second"]
+        assert posts[0]["quote_post_url"] == url
+        assert posts[1]["text"] == "Second"
+
+    @pytest.mark.parametrize("url", ["https://[broken", "https:///post/123", "ftp://x.com/u/status/1"])
+    def test_malformed_urls(self, url):
+        from typefully_cli.exceptions import TypefullyError
+        with pytest.raises(TypefullyError):
+            _build_draft_payload(posts_text=["Take"], platforms=["x"], quote_post_url=url)
+
+
+class TestPlatformFields:
+    @pytest.mark.parametrize("reply", ["following", "mentionedUsers", "subscribers", "verified", "null"])
+    def test_reply_settings(self, reply):
+        payload = _build_draft_payload(posts_text=["One", "Two"], reply_settings=reply)
+        assert all(p["reply_settings"] == (None if reply == "null" else reply)
+                   for p in payload["platforms"]["x"]["posts"])
+
+    @pytest.mark.parametrize("enabled", [True, False])
+    def test_x_boolean_fields(self, enabled):
+        platform = _build_draft_payload(
+            posts_text=["One"], community="123", subscribers_only=enabled,
+            share_with_followers=enabled,
+        )["platforms"]["x"]
+        assert platform["posts"][0]["subscribers_only"] is enabled
+        assert platform["settings"] == {"community_id": "123", "share_with_followers": enabled}
+
+    def test_omitted_fields_stay_omitted(self):
+        assert _build_draft_payload(posts_text=["One"])["platforms"]["x"] == {
+            "enabled": True, "posts": [{"text": "One"}],
+        }
+
+    @pytest.mark.parametrize("value", ["First comment", "", "null", "x" * 1250])
+    def test_linkedin_comment(self, value):
+        config = _build_draft_payload(posts_text=["Post"], platforms=["linkedin"],
+                                      linkedin_first_comment=value)["platforms"]["linkedin"]
+        assert config["settings"]["first_comment"] == (None if value == "null" else value)
+
+    @pytest.mark.parametrize("value", ["urn:li:share:123", "urn:li:ugcPost:123",
+                                        "urn:li:groupPost:123",
+                                        "https://www.linkedin.com/feed/update/urn:li:share:123",
+                                        "null", "x" * 2048])
+    def test_linkedin_reshare(self, value):
+        posts = _build_draft_payload(posts_text=["One", "Two"], platforms=["linkedin"],
+                                    linkedin_reshare_target=value)["platforms"]["linkedin"]["posts"]
+        assert posts[0]["linkedin_reshare_target"] == (None if value == "null" else value)
+        assert "linkedin_reshare_target" not in posts[1]
+
+    @pytest.mark.parametrize("platforms,fields", [
+        (["linkedin"], {"reply_settings": "verified"}),
+        (["bluesky"], {"subscribers_only": False}),
+        (["linkedin"], {"share_with_followers": False}),
+        (["x"], {"linkedin_first_comment": ""}),
+        (["x"], {"linkedin_reshare_target": "null"}),
+        (["x_article"], {"reply_settings": "null"}),
+        (["x"], {"reply_settings": "invalid"}),
+        (["x"], {"share_with_followers": True}),
+        (["linkedin"], {"linkedin_first_comment": "x" * 1251}),
+        (["linkedin"], {"linkedin_reshare_target": "x" * 2049}),
+    ])
+    def test_invalid_fields(self, platforms, fields):
+        from typefully_cli.exceptions import TypefullyError
+        with pytest.raises(TypefullyError):
+            _build_draft_payload(posts_text=["Post"], platforms=platforms, **fields)
+
+    @pytest.mark.parametrize("command", ["draft", "thread", "update"])
+    def test_create_replace_mixed_platforms(self, runner, mock_config, command):
+        with patch("typefully_cli.config._config_path", return_value=mock_config):
+            with patch("typefully_cli.cli.TypefullyClient") as MockClient:
+                client = _make_client_mock(MockClient)
+                client.create_draft.return_value = {"id": 1}
+                client.update_draft.return_value = {"id": 1}
+                args = {"draft": ["draft", "Text"], "thread": ["thread", "First", "Second"],
+                        "update": ["update", "1", "Replacement"]}[command]
+                result = runner.invoke(cli, args + ["--platform", "x,linkedin,bluesky",
+                    "--reply-settings", "verified", "--no-subscribers-only", "--community", "123",
+                    "--no-share-with-followers", "--linkedin-first-comment", "A comment",
+                    "--linkedin-reshare-target", "urn:li:share:123"])
+        assert result.exit_code == 0, result.output
+        call = client.update_draft.call_args if command == "update" else client.create_draft.call_args
+        platforms = call[0][2 if command == "update" else 1]["platforms"]
+        assert platforms["x"]["posts"][0]["reply_settings"] == "verified"
+        assert platforms["x"]["posts"][0]["subscribers_only"] is False
+        assert platforms["x"]["settings"]["share_with_followers"] is False
+        assert platforms["linkedin"]["settings"]["first_comment"] == "A comment"
+        assert platforms["linkedin"]["posts"][0]["linkedin_reshare_target"] == "urn:li:share:123"
+        assert platforms["bluesky"]["posts"][0] == {"text": "Replacement" if command == "update"
+                                                   else "Text" if command == "draft" else "First"}
+
+    @pytest.mark.parametrize("append", [False, True])
+    def test_update_preserves_posts_settings_and_response_reshare(self, runner, mock_config, append):
+        marker_text = "Keep <comment id='123'>these anchors</comment>"
+        old_x = {"text": marker_text, "media_ids": ["old"], "reply_settings": "following",
+                 "subscribers_only": True, "paid_partnership": True,
+                 "quote_post_url": "https://x.com/u/status/1"}
+        old_li = {"text": marker_text, "linkedin_reshare_urn": "urn:li:share:123"}
+        with patch("typefully_cli.config._config_path", return_value=mock_config):
+            with patch("typefully_cli.cli.TypefullyClient") as MockClient:
+                client = _make_client_mock(MockClient)
+                client.get_draft.return_value = {"platforms": {
+                    "x": {"enabled": True, "posts": [old_x],
+                          "settings": {"community_id": "123", "reply_to_url": "https://x.com/u/status/2"}},
+                    "linkedin": {"enabled": True, "posts": [old_li],
+                                 "settings": {"first_comment": "Existing"}},
+                    "bluesky": {"enabled": True, "posts": [{"text": "Unchanged"}]},
+                }}
+                client.update_draft.return_value = {"id": 1}
+                args = ["update", "1"] + (["New", "--append"] if append else [])
+                result = runner.invoke(cli, args + ["--platform", "x,linkedin", "--reply-settings",
+                    "null", "--no-subscribers-only", "--no-share-with-followers",
+                    "--linkedin-first-comment", "null"])
+        assert result.exit_code == 0, result.output
+        platforms = client.update_draft.call_args[0][2]["platforms"]
+        assert set(platforms) == {"x", "linkedin"}
+        x = platforms["x"]
+        assert x["posts"][0]["text"] == marker_text
+        assert x["posts"][-1]["reply_settings"] is None
+        assert x["posts"][-1]["subscribers_only"] is False
+        assert x["settings"] == {"community_id": "123", "share_with_followers": False,
+                                 "reply_to_url": "https://x.com/u/status/2"}
+        assert platforms["linkedin"]["settings"]["first_comment"] is None
+        assert platforms["linkedin"]["posts"][0]["linkedin_reshare_target"] == "urn:li:share:123"
+        assert "linkedin_reshare_urn" not in platforms["linkedin"]["posts"][0]
+        if append:
+            assert x["posts"][0] == old_x
+
+    def test_reshare_clear_metadata_and_media_preserve_text(self, runner, mock_config):
+        with patch("typefully_cli.config._config_path", return_value=mock_config):
+            with patch("typefully_cli.cli.TypefullyClient") as MockClient:
+                client = _make_client_mock(MockClient)
+                client.get_draft.return_value = {"platforms": {"linkedin": {
+                    "enabled": True, "posts": [{"text": "Keep", "linkedin_reshare_urn": "urn:li:share:1"}],
+                }}}
+                client.update_draft.return_value = {"id": 1}
+                result = runner.invoke(cli, ["update", "1", "--platform", "linkedin",
+                    "--linkedin-reshare-target", "null", "--media", "new"])
+        assert result.exit_code == 0, result.output
+        post = client.update_draft.call_args[0][2]["platforms"]["linkedin"]["posts"][0]
+        assert post == {"text": "Keep", "linkedin_reshare_target": None, "media_ids": ["new"]}
+
+    @pytest.mark.parametrize("args", [
+        ["--reply-settings", "unknown"],
+        ["--platform", "bluesky", "--subscribers-only"],
+        ["--platform", "x", "--linkedin-first-comment", "Hello"],
+        ["--share-with-followers"],
+        ["--platform", "linkedin", "--linkedin-first-comment", "x" * 1251],
+    ])
+    def test_invalid_cli_never_mutates(self, runner, mock_config, args):
+        with patch("typefully_cli.config._config_path", return_value=mock_config):
+            with patch("typefully_cli.cli.TypefullyClient") as MockClient:
+                client = _make_client_mock(MockClient)
+                client.get_draft.return_value = {"platforms": {"x": {
+                    "enabled": True, "posts": [{"text": "Keep"}],
+                }}}
+                result = runner.invoke(cli, ["update", "1"] + args)
+        assert result.exit_code != 0
+        client.update_draft.assert_not_called()
+
+
+class TestUploadAltText:
+    @pytest.mark.parametrize("no_wait", [False, True])
+    @pytest.mark.parametrize("alt_text", [None, "Description", "", "x" * 1000])
+    def test_optional_alt_text(self, runner, mock_config, tmp_path, no_wait, alt_text):
+        file = tmp_path / "image.png"
+        file.write_bytes(b"fake")
+        with patch("typefully_cli.config._config_path", return_value=mock_config):
+            with patch("typefully_cli.cli.TypefullyClient") as MockClient:
+                client = _make_client_mock(MockClient)
+                client.request_upload.return_value = {"media_id": "123", "upload_url": "https://example.com"}
+                with patch("typefully_cli.cli.upload_media", return_value={"media_id": "123"}) as upload_mock:
+                    args = ["upload", str(file)] + (["--no-wait"] if no_wait else [])
+                    if alt_text is not None:
+                        args += ["--alt-text", alt_text]
+                    result = runner.invoke(cli, args)
+        assert result.exit_code == 0, result.output
+        call = client.request_upload.call_args if no_wait else upload_mock.call_args
+        assert ("alt_text" in call.kwargs) is (alt_text is not None)
+        if alt_text is not None:
+            assert call.kwargs["alt_text"] == alt_text
+
+    def test_oversized_alt_text_rejected(self, runner, mock_config, tmp_path):
+        file = tmp_path / "image.png"
+        file.write_bytes(b"fake")
+        with patch("typefully_cli.config._config_path", return_value=mock_config):
+            with patch("typefully_cli.cli.TypefullyClient") as MockClient:
+                result = runner.invoke(cli, ["upload", str(file), "--alt-text", "x" * 1001])
+        assert result.exit_code == 1
+        MockClient.assert_not_called()
+
+
+@pytest.mark.parametrize("args,expected", [
+    (["--media", "new"], {"x"}),
+    (["--media", "new", "--platform", "bluesky"], {"bluesky"}),
+    (["--linkedin-first-comment", "Comment"], {"linkedin"}),
+])
+def test_metadata_only_target_selection(runner, mock_config, args, expected):
+    with patch("typefully_cli.config._config_path", return_value=mock_config):
+        with patch("typefully_cli.cli.TypefullyClient") as MockClient:
+            client = _make_client_mock(MockClient)
+            client.get_draft.return_value = {"platforms": {
+                p: {"enabled": True, "posts": [{"text": p}]} for p in ["x", "linkedin", "bluesky"]
+            }}
+            client.update_draft.return_value = {"id": 1}
+            result = runner.invoke(cli, ["update", "1"] + args)
+    assert result.exit_code == 0, result.output
+    platforms = client.update_draft.call_args[0][2]["platforms"]
+    assert set(platforms) == expected
+    for name, config in platforms.items():
+        assert config["posts"][0]["text"] == name

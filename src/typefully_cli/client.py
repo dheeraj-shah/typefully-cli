@@ -64,8 +64,19 @@ class TypefullyClient:
     def get_social_sets(self) -> list[dict]:
         if self._social_sets_cache is not None:
             return self._social_sets_cache
-        data = self._request("GET", "/social-sets", params={"limit": 50})
-        self._social_sets_cache = data.get("results", []) if data else []
+        results = []
+        offset = 0
+        while True:
+            params = {"limit": 50}
+            if offset:
+                params["offset"] = offset
+            data = self._request("GET", "/social-sets", params=params) or {}
+            page = data.get("results", [])
+            results.extend(page)
+            if len(page) < 50:
+                break
+            offset += len(page)
+        self._social_sets_cache = results
         return self._social_sets_cache
 
     def resolve_account(self, name_or_id: str | None, config_default: str = "") -> int:
@@ -208,12 +219,15 @@ class TypefullyClient:
 
     # --- Media ---
 
-    def request_upload(self, social_set_id: int, file_name: str) -> dict:
+    def request_upload(self, social_set_id: int, file_name: str, alt_text: str | None = None) -> dict:
+        payload = {"file_name": file_name}
+        if alt_text is not None:
+            payload["alt_text"] = alt_text
         return (
             self._request(
                 "POST",
                 f"/social-sets/{social_set_id}/media/upload",
-                json={"file_name": file_name},
+                json=payload,
             )
             or {}
         )
@@ -228,6 +242,13 @@ class TypefullyClient:
     def get_media(self, social_set_id: int, media_id: str) -> dict:
         """Get current media status."""
         return self._request("GET", f"/social-sets/{social_set_id}/media/{media_id}") or {}
+
+    def update_media(self, social_set_id: int, media_id: str, alt_text: str | None) -> dict:
+        """Update alt text; None explicitly clears the stored value."""
+        return self._request(
+            "PATCH", f"/social-sets/{social_set_id}/media/{media_id}",
+            json={"alt_text": alt_text},
+        ) or {}
 
     # --- Recent (with pagination) ---
 
