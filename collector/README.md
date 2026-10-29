@@ -13,7 +13,8 @@ CLI publication/release remains a separate approval.
 {"version":"0.3.0","category":"drafts"}
 ```
 
-Only reviewed release versions are accepted (`VERSIONS`); add a version explicitly
+Only reviewed release versions are accepted (`VERSIONS`: `0.3.0` and the prepared
+`0.4.0` candidate); add a version explicitly
 when releasing. Categories: `account`, `drafts`, `publishing`, `media`, `tags`,
 `analytics`, `comments`, `queue`. Other keys/values and URLs with query strings are
 rejected. The application ignores all request headers except content type.
