@@ -193,6 +193,96 @@ def _quote_platform(url: str, platforms: list[str]) -> str:
     )
 
 
+def _platform_field_options(f):
+    """Optional platform fields, omitted unless explicitly supplied."""
+    options = [
+        click.option("--reply-settings", type=click.Choice([
+            "following", "mentionedUsers", "subscribers", "verified", "null",
+        ]), default=None, help="X reply audience; null restores everyone"),
+        click.option("--subscribers-only/--no-subscribers-only", default=None),
+        click.option("--share-with-followers/--no-share-with-followers", default=None,
+                     help="Also share an X community post to followers"),
+        click.option("--linkedin-first-comment", default=None,
+                     help="LinkedIn first comment (max 1250 characters); null clears"),
+        click.option("--linkedin-reshare-target", default=None,
+                     help="LinkedIn post URL or URN (max 2048 characters); null clears"),
+    ]
+    for option in options:
+        f = option(f)
+    return f
+
+
+def _validate_platform_fields(platforms, fields):
+    x_fields = ("reply_settings", "subscribers_only", "share_with_followers")
+    li_fields = ("linkedin_first_comment", "linkedin_reshare_target")
+    for platform, names in (("x", x_fields), ("linkedin", li_fields)):
+        if any(fields.get(name) is not None for name in names) and platform not in platforms:
+            raise TypefullyError(
+                f"{platform}-only options require {platform} in --platform", code="invalid_input"
+            )
+    reply = fields.get("reply_settings")
+    if reply is not None and reply not in {
+        "following", "mentionedUsers", "subscribers", "verified", "null",
+    }:
+        raise TypefullyError("Invalid X reply settings", code="invalid_input")
+    for name, limit in (("linkedin_first_comment", 1250), ("linkedin_reshare_target", 2048)):
+        value = fields.get(name)
+        if value is not None and len(value) > limit:
+            raise TypefullyError(
+                f"--{name.replace('_', '-')} must be at most {limit} characters",
+                code="invalid_input",
+            )
+
+
+def _apply_platform_fields(platforms, fields):
+    """Apply explicit fields only; settings merge rather than overwrite."""
+    _validate_platform_fields(platforms, fields)
+    x = platforms.get("x", {})
+    for name in ("reply_settings", "subscribers_only"):
+        value = fields.get(name)
+        if value is not None:
+            for post in x.get("posts", []):
+                post[name] = None if name == "reply_settings" and value == "null" else value
+    share = fields.get("share_with_followers")
+    if share is not None:
+        settings = x.setdefault("settings", {})
+        if not settings.get("community_id"):
+            raise TypefullyError(
+                "--share-with-followers requires an X community (use --community)",
+                code="invalid_input",
+            )
+        settings["share_with_followers"] = share
+    linkedin = platforms.get("linkedin", {})
+    first_comment = fields.get("linkedin_first_comment")
+    if first_comment is not None:
+        linkedin.setdefault("settings", {})["first_comment"] = (
+            None if first_comment == "null" else first_comment
+        )
+    reshare = fields.get("linkedin_reshare_target")
+    if reshare is not None:
+        for post in linkedin.get("posts", [])[:1]:
+            post["linkedin_reshare_target"] = None if reshare == "null" else reshare
+
+
+def _editable_posts(name, source_posts):
+    """Copy writable fields, retaining anchors and translating response-only names."""
+    allowed = {"text", "media_ids", "hide_link_preview"}
+    if name == "x":
+        allowed |= {"quote_post_url", "paid_partnership", "made_with_ai",
+                    "subscribers_only", "reply_settings"}
+    elif name == "linkedin":
+        allowed.add("linkedin_reshare_target")
+    else:
+        allowed.add("quote_post_url")
+    posts = []
+    for source in source_posts:
+        post = {k: v for k, v in source.items() if k in allowed}
+        if name == "linkedin" and "linkedin_reshare_urn" in source:
+            post["linkedin_reshare_target"] = source["linkedin_reshare_urn"]
+        posts.append(post)
+    return posts
+
+
 def _resolve_platforms(
     client: TypefullyClient,
     social_set_id: int,
@@ -535,6 +625,7 @@ def recent(limit, since, until_date, output_format, api_key, account, use_text, 
 @click.option("--paid-partnership", is_flag=True, help="Add X paid-partnership disclosure")
 @click.option("--made-with-ai", is_flag=True, help="Add X AI disclosure")
 @click.option("--hide-link-preview", is_flag=True, help="Hide link preview on LinkedIn, Threads, Substack")
+@_platform_field_options
 @shared_options
 @error_handler
 def draft(
@@ -542,9 +633,18 @@ def draft(
     qrt, threadify, auto_retweet, auto_plug,
     linkedin, threads, bluesky, mastodon, all_platforms, community, platform, substack,
     content_markdown, cover_media_id, paid_partnership, made_with_ai, hide_link_preview,
+    reply_settings, subscribers_only, share_with_followers,
+    linkedin_first_comment, linkedin_reshare_target,
     api_key, account, use_text, use_json, quiet, debug,
 ):
     """Create a draft post."""
+    platform_fields = dict(
+        reply_settings=reply_settings, subscribers_only=subscribers_only,
+        share_with_followers=share_with_followers,
+        linkedin_first_comment=linkedin_first_comment,
+        linkedin_reshare_target=linkedin_reshare_target,
+    )
+
     if input_file:
         with open(input_file, encoding="utf-8") as fh:
             text = fh.read().strip()
@@ -582,7 +682,7 @@ def draft(
             quote_post_url=qrt, community=community, platforms=target_platforms,
             content_markdown=content_markdown, cover_media_id=cover_media_id,
             paid_partnership=paid_partnership, made_with_ai=made_with_ai,
-            hide_link_preview=hide_link_preview,
+            hide_link_preview=hide_link_preview, **platform_fields,
         )
 
         console.status("Creating draft...")
@@ -619,6 +719,7 @@ def draft(
 @click.option("--paid-partnership", is_flag=True, help="Add X paid-partnership disclosure")
 @click.option("--made-with-ai", is_flag=True, help="Add X AI disclosure")
 @click.option("--hide-link-preview", is_flag=True, help="Hide link preview on LinkedIn, Threads, Substack")
+@_platform_field_options
 @shared_options
 @error_handler
 def thread(
@@ -626,9 +727,18 @@ def thread(
     qrt, auto_retweet, auto_plug,
     linkedin, threads, bluesky, mastodon, all_platforms, community, platform, substack,
     paid_partnership, made_with_ai, hide_link_preview,
+    reply_settings, subscribers_only, share_with_followers,
+    linkedin_first_comment, linkedin_reshare_target,
     api_key, account, use_text, use_json, quiet, debug,
 ):
     """Create a multi-post thread. Provide 2+ posts as separate arguments."""
+    platform_fields = dict(
+        reply_settings=reply_settings, subscribers_only=subscribers_only,
+        share_with_followers=share_with_followers,
+        linkedin_first_comment=linkedin_first_comment,
+        linkedin_reshare_target=linkedin_reshare_target,
+    )
+
     if len(posts) < 2:
         Console(quiet).error_json({
             "code": "invalid_input",
@@ -664,7 +774,7 @@ def thread(
             auto_retweet=auto_retweet, auto_plug=auto_plug,
             quote_post_url=qrt, community=community, platforms=target_platforms,
             paid_partnership=paid_partnership, made_with_ai=made_with_ai,
-            hide_link_preview=hide_link_preview,
+            hide_link_preview=hide_link_preview, **platform_fields,
         )
 
         console.status(f"Creating {len(posts_list)}-post thread...")
@@ -753,18 +863,29 @@ def open_draft(draft_id, api_key, account, use_text, use_json, quiet, debug):
     "--qrt", "--quote-post-url", "qrt", default=None,
     help="Quote URL for X, Threads, Bluesky, Mastodon, or Substack",
 )
+@click.option("--community", default=None, help="X community ID")
 @click.option("--force-overwrite-comments", is_flag=True)
 @click.option("--exclude-comment-markers", is_flag=True)
+@_platform_field_options
 @shared_options
 @error_handler
 def update(
     draft_id, text, input_file, schedule, plan, tags, title, share_flag, scratchpad,
     auto_retweet, auto_plug, media, append_posts, platform, content_markdown, cover_media_id,
     paid_partnership, made_with_ai, hide_link_preview, force_overwrite_comments,
-    exclude_comment_markers, qrt,
+    exclude_comment_markers, qrt, community,
+    reply_settings, subscribers_only, share_with_followers,
+    linkedin_first_comment, linkedin_reshare_target,
     api_key, account, use_text, use_json, quiet, debug,
 ):
     """Update an existing draft. Text supports === for thread post splitting."""
+    platform_fields = dict(
+        reply_settings=reply_settings, subscribers_only=subscribers_only,
+        share_with_followers=share_with_followers,
+        linkedin_first_comment=linkedin_first_comment,
+        linkedin_reshare_target=linkedin_reshare_target,
+    )
+
     client, console, cfg = _get_client_and_console(api_key, quiet, debug=debug)
     use_text = _resolve_text_mode(use_text, use_json, cfg)
     if input_file:
@@ -785,6 +906,9 @@ def update(
 
         if content_markdown is not None or cover_media_id is not None:
             target_platforms = _resolve_platforms(client, ssid, platform)
+            _validate_platform_fields(target_platforms, platform_fields)
+            if community is not None:
+                raise TypefullyError("--community requires X posts", code="invalid_input")
             if target_platforms != ["x_article"]:
                 raise TypefullyError(
                     "X Article updates require --platform x_article", code="invalid_input"
@@ -809,15 +933,28 @@ def update(
                 )["platforms"]
                 for name, config in additions.items():
                     old = existing.get("platforms", {}).get(name, {})
-                    old_posts = old.get("posts", [])
+                    old_posts = _editable_posts(name, old.get("posts", []))
                     if name == "substack" and old_posts:
                         raise TypefullyError(
                             "Substack Notes supports one post per draft; cannot append",
                             code="invalid_input",
                         )
-                    config["posts"] = old_posts + config["posts"]
                     if old.get("settings"):
-                        config["settings"] = old["settings"]
+                        config["settings"] = dict(old["settings"])
+                    if name == "x" and community is not None:
+                        config.setdefault("settings", {})["community_id"] = community
+                    # Apply per-post options only to newly appended posts.
+                    selected_fields = {
+                        key: value for key, value in platform_fields.items()
+                        if (name == "x" and key in {
+                            "reply_settings", "subscribers_only", "share_with_followers"
+                        }) or (name == "linkedin" and key.startswith("linkedin_"))
+                    }
+                    _apply_platform_fields({name: config}, selected_fields)
+                    config["posts"] = old_posts + config["posts"]
+                _validate_platform_fields(target_platforms, platform_fields)
+                if community is not None and "x" not in target_platforms:
+                    raise TypefullyError("--community requires X", code="invalid_input")
                 payload["platforms"] = additions
             else:
                 parts = [p.strip() for p in text.split("===") if p.strip()]
@@ -826,46 +963,58 @@ def update(
                     posts_text=parts, media=media, platforms=target_platforms,
                     quote_post_url=qrt,
                     paid_partnership=paid_partnership, made_with_ai=made_with_ai,
-                    hide_link_preview=hide_link_preview,
+                    hide_link_preview=hide_link_preview, community=community, **platform_fields,
                 )["platforms"]
-        elif media and not qrt:
-            payload["platforms"] = {
-                "x": {"enabled": True, "posts": [{"media_ids": [m.strip() for m in media.split(",")]}]}
-            }
-        elif qrt or paid_partnership or made_with_ai or hide_link_preview:
+        elif media or qrt or paid_partnership or made_with_ai or hide_link_preview or (
+            community is not None or any(value is not None for value in platform_fields.values())
+        ):
             existing = client.get_draft(ssid, draft_id)
-            requested = _resolve_platforms(client, ssid, platform) if platform else None
             existing_platforms = existing.get("platforms", {})
-            target_platforms = requested or [
+            target_platforms = _resolve_platforms(client, ssid, platform) if platform else [
                 name for name, config in existing_platforms.items()
                 if name in POST_PLATFORMS and isinstance(config, dict) and config.get("enabled")
             ]
-            if not target_platforms:
-                raise TypefullyError("Draft has no editable post platforms", code="invalid_input")
+            if media and not platform and not (
+                qrt or paid_partnership or made_with_ai or hide_link_preview
+                or community is not None
+                or any(value is not None for value in platform_fields.values())
+            ):
+                # Preserve the historical default for media-only updates (X).
+                target_platforms = ["x"]
+            _validate_platform_fields(target_platforms, platform_fields)
+            x_options = community is not None or paid_partnership or made_with_ai or any(
+                platform_fields[key] is not None
+                for key in ("reply_settings", "subscribers_only", "share_with_followers")
+            )
+            li_options = any(platform_fields[key] is not None for key in (
+                "linkedin_first_comment", "linkedin_reshare_target"
+            ))
+            if x_options and "x" not in target_platforms:
+                raise TypefullyError("X-only options require X", code="invalid_input")
+            if hide_link_preview and not set(target_platforms) & LINK_PREVIEW_PLATFORMS:
+                raise TypefullyError("Link-preview hiding requires a supported platform",
+                                    code="invalid_input")
             quote_platform = _quote_platform(qrt, target_platforms) if qrt else None
             payload["platforms"] = {}
             for name in target_platforms:
-                if qrt and name != quote_platform and not (
-                    (name == "x" and (paid_partnership or made_with_ai))
+                if not (
+                    name == quote_platform or (name == "x" and x_options)
+                    or (name == "linkedin" and li_options)
                     or (name in LINK_PREVIEW_PLATFORMS and hide_link_preview)
+                    or (media and (not qrt or name == quote_platform))
                 ):
                     continue
-                source_posts = existing_platforms.get(name, {}).get("posts", [])
-                posts = [{k: v for k, v in post.items() if k in {
-                    "text", "media_ids", "quote_post_url", "paid_partnership", "made_with_ai",
-                    "hide_link_preview", "subscribers_only", "reply_settings"
-                }} for post in source_posts]
+                source = existing_platforms.get(name, {})
+                posts = _editable_posts(name, source.get("posts", []))
                 if not posts:
-                    if name == quote_platform:
-                        raise TypefullyError(
-                            "Cannot quote on a platform with no existing posts", code="invalid_input"
-                        )
-                    continue
+                    raise TypefullyError(
+                        f"Cannot update {name}: draft has no existing posts", code="invalid_input"
+                    )
                 if name == quote_platform:
                     for post in posts if name == "x" else posts[:1]:
                         post["quote_post_url"] = qrt
-                    if media:
-                        posts[0]["media_ids"] = [m.strip() for m in media.split(",") if m.strip()]
+                if media and (not qrt or name == quote_platform):
+                    posts[0]["media_ids"] = [m.strip() for m in media.split(",") if m.strip()]
                 if name == "x":
                     for post in posts:
                         if paid_partnership:
@@ -875,9 +1024,15 @@ def update(
                 if name in LINK_PREVIEW_PLATFORMS and hide_link_preview:
                     for post in posts:
                         post["hide_link_preview"] = True
-                payload["platforms"][name] = {"enabled": True, "posts": posts}
-                if existing_platforms.get(name, {}).get("settings"):
-                    payload["platforms"][name]["settings"] = existing_platforms[name]["settings"]
+                config = {"enabled": True, "posts": posts}
+                if source.get("settings"):
+                    config["settings"] = dict(source["settings"])
+                if name == "x" and community is not None:
+                    config.setdefault("settings", {})["community_id"] = community
+                payload["platforms"][name] = config
+            _apply_platform_fields(payload["platforms"], platform_fields)
+            if not payload["platforms"]:
+                raise TypefullyError("Draft has no editable post platforms", code="invalid_input")
 
         if share_flag is True:
             payload["share"] = True
@@ -961,11 +1116,11 @@ def delete(ids, api_key, account, use_text, use_json, quiet, debug):
 
 
 @cli.command()
-@click.option("--status", "draft_status", default=None, help="Filter: draft|published|scheduled|error")
+@click.option("--status", "draft_status", default=None, help="Filter: draft|planned|scheduled|publishing|published|error")
 @click.option("-n", "--limit", default=10, type=int)
-@click.option("--offset", default=0, type=int)
+@click.option("--offset", default=0, type=click.IntRange(min=0))
 @click.option("--order", default="-updated_at")
-@click.option("--tag", default=None, help="Filter by tag slug")
+@click.option("--tag", multiple=True, help="Filter by tag slug (repeat for multiple tags)")
 @click.option("--content-filter", default=None, help="Filter: original|repost")
 @shared_options
 @error_handler
@@ -984,7 +1139,7 @@ def drafts(draft_status, limit, offset, order, tag, content_filter, api_key, acc
         if draft_status:
             params["status"] = draft_status
         if tag:
-            params["tag"] = tag
+            params["tag"] = tag[0] if len(tag) == 1 else list(tag)
         if content_filter:
             params["content_filter"] = content_filter
 
@@ -997,7 +1152,7 @@ def drafts(draft_status, limit, offset, order, tag, content_filter, api_key, acc
 
 @cli.command()
 @click.option("-n", "--limit", default=50, type=int)
-@click.option("--offset", default=0, type=int)
+@click.option("--offset", default=0, type=click.IntRange(min=0))
 @shared_options
 @error_handler
 def tags(limit, offset, api_key, account, use_text, use_json, quiet, debug):
@@ -1043,10 +1198,14 @@ def tag_create(name, api_key, account, use_text, use_json, quiet, debug):
 @click.option("--no-wait", is_flag=True, help="Return immediately after S3 upload, skip processing poll")
 @click.option("--timeout", "poll_timeout", default=60, type=int,
               help="Media processing poll timeout in seconds")
+@click.option("--alt-text", default=None, help="Media alt text (max 1000 characters)")
 @shared_options
 @error_handler
-def upload(file_path, no_wait, poll_timeout, api_key, account, use_text, use_json, quiet, debug):
+def upload(file_path, no_wait, poll_timeout, alt_text, api_key, account, use_text, use_json, quiet, debug):
     """Upload a media file and return its media ID."""
+    if alt_text is not None and len(alt_text) > 1000:
+        raise TypefullyError("--alt-text must be at most 1000 characters", code="invalid_input")
+    upload_options = {"alt_text": alt_text} if alt_text is not None else {}
     client, console, cfg = _get_client_and_console(api_key, quiet, debug=debug)
     use_text = _resolve_text_mode(use_text, use_json, cfg)
     with client:
@@ -1055,7 +1214,7 @@ def upload(file_path, no_wait, poll_timeout, api_key, account, use_text, use_jso
             from typefully_cli.media import _sanitize_filename
             file_name = _sanitize_filename(os.path.basename(file_path))
             console.status(f"Requesting upload URL for {file_name}...")
-            upload_response = client.request_upload(ssid, file_name)
+            upload_response = client.request_upload(ssid, file_name, **upload_options)
             media_id = upload_response.get("media_id", "")
             upload_url = upload_response.get("upload_url", "")
             console.status(f"Uploading {file_name}...")
@@ -1063,7 +1222,7 @@ def upload(file_path, no_wait, poll_timeout, api_key, account, use_text, use_jso
             data = {"media_id": media_id, "status": "uploading"}
             _output(data, use_text, fmt.print_upload_result)
         else:
-            data = upload_media(client, ssid, file_path, console, timeout=poll_timeout)
+            data = upload_media(client, ssid, file_path, console, timeout=poll_timeout, **upload_options)
             _output(data, use_text, fmt.print_upload_result)
 
 
@@ -1184,7 +1343,7 @@ def batch(file_path, schedule, tags, share, dry_run, output_file, api_key, accou
 @click.option("--end-date", default="", help="End date YYYY-MM-DD")
 @click.option("--include-replies", is_flag=True, help="Include reply posts")
 @click.option("-n", "--limit", default=50, type=int, help="Number of posts (max: 50)")
-@click.option("--offset", default=0, type=int)
+@click.option("--offset", default=0, type=click.IntRange(min=0))
 @shared_options
 @error_handler
 def analytics(platform, start_date, end_date, include_replies, limit, offset,
@@ -1314,7 +1473,7 @@ def comments():
 @click.option("--platform", default=None)
 @click.option("--status", "comment_status", default="unresolved")
 @click.option("-n", "--limit", default=10, type=int)
-@click.option("--offset", default=0, type=int)
+@click.option("--offset", default=0, type=click.IntRange(min=0))
 @shared_options
 @error_handler
 def comments_list(draft_id, platform, comment_status, limit, offset,
@@ -1530,6 +1689,11 @@ def _build_draft_payload(
     paid_partnership: bool = False,
     made_with_ai: bool = False,
     hide_link_preview: bool = False,
+    reply_settings: str | None = None,
+    subscribers_only: bool | None = None,
+    share_with_followers: bool | None = None,
+    linkedin_first_comment: str | None = None,
+    linkedin_reshare_target: str | None = None,
 ) -> dict:
     """Build a draft creation payload from CLI args."""
     target_platforms = platforms or ["x"]
@@ -1593,6 +1757,12 @@ def _build_draft_payload(
                     config["settings"]["community_id"] = community
             platform_payload[name] = config
 
+    _apply_platform_fields(platform_payload, dict(
+        reply_settings=reply_settings, subscribers_only=subscribers_only,
+        share_with_followers=share_with_followers,
+        linkedin_first_comment=linkedin_first_comment,
+        linkedin_reshare_target=linkedin_reshare_target,
+    ))
     payload: dict[str, Any] = {"platforms": platform_payload}
 
     if threadify:
@@ -1627,3 +1797,9 @@ def _build_draft_payload(
         payload["draft_title"] = title
 
     return payload
+
+
+# Register advanced, explicit request-input and media metadata commands.
+from typefully_cli.payloads import register_commands  # noqa: E402
+
+register_commands(cli)

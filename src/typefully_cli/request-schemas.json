@@ -1,0 +1,1220 @@
+{
+  "source": "https://typefully.com/docs/api",
+  "retrieved": "2026-10-29",
+  "schemas": {
+    "BlueskyPlatform": {
+      "additionalProperties": false,
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "enabled": {
+                "const": true
+              }
+            },
+            "required": [
+              "enabled"
+            ]
+          },
+          "then": {
+            "required": [
+              "posts"
+            ]
+          }
+        }
+      ],
+      "description": "Configuration for Bluesky",
+      "properties": {
+        "enabled": {
+          "description": "Required. Set true and include `posts` to publish to this platform; false (no `posts`) leaves it off.",
+          "title": "Enabled",
+          "type": "boolean"
+        },
+        "posts": {
+          "description": "Posts for this platform. Required when `enabled` is true; omit when false.",
+          "items": {
+            "$ref": "#/components/schemas/BlueskyPost"
+          },
+          "maxItems": 50,
+          "title": "Posts",
+          "type": "array"
+        },
+        "settings": {
+          "anyOf": [
+            {
+              "$ref": "#/components/schemas/BlueskySettings"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Bluesky-specific settings"
+        }
+      },
+      "required": [
+        "enabled"
+      ],
+      "title": "BlueskyPlatform",
+      "type": "object"
+    },
+    "BlueskyPost": {
+      "additionalProperties": false,
+      "description": "Bluesky post.",
+      "properties": {
+        "text": {
+          "description": "The text content of the post.",
+          "examples": [
+            "Hello world! This is my first post.",
+            "Check out this amazing update! \ud83d\ude80"
+          ],
+          "maxLength": 50000,
+          "title": "Text",
+          "type": "string"
+        },
+        "media_ids": {
+          "description": "Media IDs to attach to the post; obtain them via the media upload endpoint.",
+          "examples": [
+            [
+              "550e8400-e29b-41d4-a716-446655440000"
+            ]
+          ],
+          "items": {
+            "type": "string"
+          },
+          "maxItems": 20,
+          "title": "Media Ids",
+          "type": "array"
+        },
+        "hide_link_preview": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Hide the link-preview card (the URL stays as plain text); when false the last URL gets a preview. Omit or send null to keep the current value (false on create).",
+          "title": "Hide Link Preview"
+        },
+        "quote_post_url": {
+          "anyOf": [
+            {
+              "maxLength": 2048,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "bsky.app URL (/profile/<handle>/post/<rkey>) to quote, if its author allows quoting.",
+          "title": "Quote Post Url"
+        }
+      },
+      "required": [
+        "text"
+      ],
+      "title": "BlueskyPost",
+      "type": "object"
+    },
+    "BlueskySettings": {
+      "additionalProperties": false,
+      "description": "Settings specific to Bluesky",
+      "properties": {},
+      "title": "BlueskySettings",
+      "type": "object"
+    },
+    "DraftCreateRequest": {
+      "additionalProperties": false,
+      "description": "Request schema for creating a draft",
+      "properties": {
+        "platforms": {
+          "$ref": "#/components/schemas/Platforms",
+          "description": "Platform configurations for each social media platform"
+        },
+        "draft_title": {
+          "anyOf": [
+            {
+              "maxLength": 512,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Draft title, for internal organization only; not posted to social media.",
+          "examples": [
+            "Weekly Newsletter",
+            "Product Launch Announcement",
+            "Monday Motivation Post"
+          ],
+          "title": "Draft Title"
+        },
+        "scratchpad_text": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Plain text scratchpad notes for the draft. Formatting is stripped.",
+          "examples": [
+            "line 1\nline 2\n\nline 4"
+          ],
+          "title": "Scratchpad Text"
+        },
+        "tags": {
+          "description": "Tag slugs (not names). Tags must already exist in the social set - list them via /tags.",
+          "examples": [
+            [
+              "marketing",
+              "product"
+            ],
+            [
+              "newsletter"
+            ],
+            []
+          ],
+          "items": {
+            "type": "string"
+          },
+          "maxItems": 10,
+          "title": "Tags",
+          "type": "array"
+        },
+        "share": {
+          "default": false,
+          "description": "Whether to generate a public share URL for this draft. When true, anyone with the URL can view the draft content.",
+          "title": "Share",
+          "type": "boolean"
+        },
+        "publish_at": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "enum": [
+                "now",
+                "next-free-slot"
+              ],
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "When to publish: \"now\" (immediate), \"next-free-slot\" (next available posting slot), or a future ISO 8601 datetime with timezone. Omit to save as a draft. Mutually exclusive with `plan_at`. \"now\" is asynchronous: the response returns `publish_state`=\"in_progress\" while `status` stays \"draft\" and published URLs are null - success, not failure; poll GET /drafts/{id} until `publish_state`=\"finished\", then read `status` and the published URLs.",
+          "examples": [
+            "2027-12-20T09:00:00-05:00",
+            "now",
+            "next-free-slot"
+          ],
+          "title": "Publish At"
+        },
+        "plan_at": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "const": "next-free-slot",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "When to plan the draft. A planned draft is dated but inert: it shows on the queue and calendar at its date but never auto-publishes until confirmed by later setting `publish_at`. Accepts \"next-free-slot\" or a future ISO 8601 datetime with timezone (\"now\" is not valid). Mutually exclusive with `publish_at`. Omit to save as a plain draft.",
+          "examples": [
+            "2027-12-20T09:00:00-05:00",
+            "next-free-slot"
+          ],
+          "title": "Plan At"
+        }
+      },
+      "required": [
+        "platforms"
+      ],
+      "title": "DraftCreateRequest",
+      "type": "object"
+    },
+    "DraftUpdateRequest": {
+      "additionalProperties": false,
+      "description": "Request schema for updating a draft (partial updates supported)",
+      "properties": {
+        "platforms": {
+          "anyOf": [
+            {
+              "$ref": "#/components/schemas/Platforms"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Platform configurations. Only provided platforms will be updated; omitted platforms remain unchanged."
+        },
+        "draft_title": {
+          "anyOf": [
+            {
+              "maxLength": 512,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Draft title, for internal organization only; not posted to social media. Omit to keep unchanged.",
+          "examples": [
+            "Weekly Newsletter",
+            "Product Launch Announcement"
+          ],
+          "title": "Draft Title"
+        },
+        "scratchpad_text": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Plain text scratchpad notes for the draft. Formatting is stripped. Omit to keep unchanged.",
+          "examples": [
+            "line 1\nline 2\n\nline 4"
+          ],
+          "title": "Scratchpad Text"
+        },
+        "tags": {
+          "anyOf": [
+            {
+              "items": {
+                "type": "string"
+              },
+              "maxItems": 10,
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Tag slugs (not names). Tags must already exist in the social set - list them via /tags. Omit to keep unchanged.",
+          "examples": [
+            [
+              "marketing",
+              "product"
+            ],
+            [
+              "newsletter"
+            ],
+            []
+          ],
+          "title": "Tags"
+        },
+        "share": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Whether to generate a public share URL. Omit to keep unchanged.",
+          "title": "Share"
+        },
+        "publish_at": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "enum": [
+                "now",
+                "next-free-slot"
+              ],
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "When to publish: \"now\" (immediate), \"next-free-slot\", or a future ISO 8601 datetime with timezone. On a planned draft, a datetime or \"next-free-slot\" confirms it into a real schedule (echo its `scheduled_date` to keep the date); \"now\" publishes it immediately. Explicit null returns it to plain draft status. Mutually exclusive with `plan_at`. Omit to keep unchanged. \"now\" is asynchronous: the response returns `publish_state`=\"in_progress\" (success, not failure); poll GET /drafts/{id} until \"finished\".",
+          "examples": [
+            "2027-12-20T09:00:00-05:00",
+            "now",
+            "next-free-slot"
+          ],
+          "title": "Publish At"
+        },
+        "plan_at": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "const": "next-free-slot",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "When to plan. A planned draft is dated but inert: on the queue and calendar but never auto-publishing until confirmed via `publish_at`. A future datetime with timezone or \"next-free-slot\" plans a plain draft, replans a planned one, or unschedules a scheduled one into a plan (requires publish access; \"now\" invalid). Explicit null returns a planned or scheduled draft to plain draft status. Mutually exclusive with `publish_at`. Omit to keep unchanged.",
+          "examples": [
+            "2027-12-20T09:00:00-05:00",
+            "next-free-slot"
+          ],
+          "title": "Plan At"
+        },
+        "force_overwrite_comments": {
+          "default": false,
+          "description": "Comment-thread anchor preservation toggle. When false (the default), submitting `posts[*].text` or X Article `content_markdown` whose `<typ:comment-thread>` markers don't match the draft's stored comment threads is rejected with `409 COMMENTS_MARKER_MISMATCH`; re-include the missing markers and retry. When true, missing markers are accepted: their comment threads are resolved server-side and their anchors stripped; submitted markers still validate normally. Only JSON `true`/`false` (not `\"true\"` strings).",
+          "title": "Force Overwrite Comments",
+          "type": "boolean"
+        }
+      },
+      "title": "DraftUpdateRequest",
+      "type": "object"
+    },
+    "LinkedInPlatform": {
+      "additionalProperties": false,
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "enabled": {
+                "const": true
+              }
+            },
+            "required": [
+              "enabled"
+            ]
+          },
+          "then": {
+            "required": [
+              "posts"
+            ]
+          }
+        }
+      ],
+      "description": "Configuration for LinkedIn",
+      "properties": {
+        "enabled": {
+          "description": "Required. Set true and include `posts` to publish to this platform; false (no `posts`) leaves it off.",
+          "title": "Enabled",
+          "type": "boolean"
+        },
+        "posts": {
+          "description": "Posts for this platform. Required when `enabled` is true; omit when false.",
+          "items": {
+            "$ref": "#/components/schemas/LinkedInPost"
+          },
+          "maxItems": 50,
+          "title": "Posts",
+          "type": "array"
+        },
+        "settings": {
+          "anyOf": [
+            {
+              "$ref": "#/components/schemas/LinkedInSettings"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "LinkedIn-specific settings"
+        }
+      },
+      "required": [
+        "enabled"
+      ],
+      "title": "LinkedInPlatform",
+      "type": "object"
+    },
+    "LinkedInPost": {
+      "additionalProperties": false,
+      "description": "Schema for individual LinkedIn post content.",
+      "properties": {
+        "text": {
+          "description": "The text content of the post. You can tag companies with mention syntax: @[Company Name](urn:li:organization:123456).",
+          "examples": [
+            "Thanks @[Typefully](urn:li:organization:86779668) for the support!"
+          ],
+          "maxLength": 50000,
+          "title": "Text",
+          "type": "string"
+        },
+        "media_ids": {
+          "description": "Media IDs to attach to the post; obtain them via the media upload endpoint.",
+          "examples": [
+            [
+              "550e8400-e29b-41d4-a716-446655440000"
+            ]
+          ],
+          "items": {
+            "type": "string"
+          },
+          "maxItems": 20,
+          "title": "Media Ids",
+          "type": "array"
+        },
+        "hide_link_preview": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Hide the link-preview card (the URL stays as plain text); when false the last URL gets a preview. Omit or send null to keep the current value (false on create).",
+          "title": "Hide Link Preview"
+        },
+        "linkedin_reshare_target": {
+          "anyOf": [
+            {
+              "maxLength": 2048,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Canonical URN or full LinkedIn post URL to reshare (repost). URLs are normalized to the canonical URN in storage and responses. Use values like urn:li:share:<id>, urn:li:ugcPost:<id>, or urn:li:groupPost:<id>.",
+          "examples": [
+            "urn:li:share:7437089188157554688"
+          ],
+          "title": "Linkedin Reshare Target"
+        }
+      },
+      "required": [
+        "text"
+      ],
+      "title": "LinkedInPost",
+      "type": "object"
+    },
+    "LinkedInSettings": {
+      "additionalProperties": false,
+      "description": "Settings specific to LinkedIn",
+      "properties": {
+        "first_comment": {
+          "anyOf": [
+            {
+              "maxLength": 1250,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Posted as a comment once the post publishes; null or empty removes it.",
+          "title": "First Comment"
+        }
+      },
+      "title": "LinkedInSettings",
+      "type": "object"
+    },
+    "MastodonPlatform": {
+      "additionalProperties": false,
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "enabled": {
+                "const": true
+              }
+            },
+            "required": [
+              "enabled"
+            ]
+          },
+          "then": {
+            "required": [
+              "posts"
+            ]
+          }
+        }
+      ],
+      "description": "Configuration for Mastodon",
+      "properties": {
+        "enabled": {
+          "description": "Required. Set true and include `posts` to publish to this platform; false (no `posts`) leaves it off.",
+          "title": "Enabled",
+          "type": "boolean"
+        },
+        "posts": {
+          "description": "Posts for this platform. Required when `enabled` is true; omit when false.",
+          "items": {
+            "$ref": "#/components/schemas/MastodonPost"
+          },
+          "maxItems": 50,
+          "title": "Posts",
+          "type": "array"
+        },
+        "settings": {
+          "anyOf": [
+            {
+              "$ref": "#/components/schemas/MastodonSettings"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Mastodon-specific settings"
+        }
+      },
+      "required": [
+        "enabled"
+      ],
+      "title": "MastodonPlatform",
+      "type": "object"
+    },
+    "MastodonPost": {
+      "additionalProperties": false,
+      "description": "Mastodon post.",
+      "properties": {
+        "text": {
+          "description": "The text content of the post.",
+          "examples": [
+            "Hello world! This is my first post.",
+            "Check out this amazing update! \ud83d\ude80"
+          ],
+          "maxLength": 50000,
+          "title": "Text",
+          "type": "string"
+        },
+        "media_ids": {
+          "description": "Media IDs to attach to the post; obtain them via the media upload endpoint.",
+          "examples": [
+            [
+              "550e8400-e29b-41d4-a716-446655440000"
+            ]
+          ],
+          "items": {
+            "type": "string"
+          },
+          "maxItems": 20,
+          "title": "Media Ids",
+          "type": "array"
+        },
+        "hide_link_preview": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Hide the link-preview card (the URL stays as plain text); when false the last URL gets a preview. Omit or send null to keep the current value (false on create).",
+          "title": "Hide Link Preview"
+        },
+        "quote_post_url": {
+          "anyOf": [
+            {
+              "maxLength": 2048,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Status URL on any instance to quote; your own server must support quotes and see it.",
+          "title": "Quote Post Url"
+        }
+      },
+      "required": [
+        "text"
+      ],
+      "title": "MastodonPost",
+      "type": "object"
+    },
+    "MastodonSettings": {
+      "additionalProperties": false,
+      "description": "Settings specific to Mastodon",
+      "properties": {},
+      "title": "MastodonSettings",
+      "type": "object"
+    },
+    "Platforms": {
+      "additionalProperties": false,
+      "description": "Schema for all platform configurations",
+      "properties": {
+        "x": {
+          "anyOf": [
+            {
+              "$ref": "#/components/schemas/XPlatform"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "X (Twitter) configuration"
+        },
+        "linkedin": {
+          "anyOf": [
+            {
+              "$ref": "#/components/schemas/LinkedInPlatform"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "LinkedIn configuration"
+        },
+        "mastodon": {
+          "anyOf": [
+            {
+              "$ref": "#/components/schemas/MastodonPlatform"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Mastodon configuration"
+        },
+        "threads": {
+          "anyOf": [
+            {
+              "$ref": "#/components/schemas/ThreadsPlatform"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Threads configuration"
+        },
+        "bluesky": {
+          "anyOf": [
+            {
+              "$ref": "#/components/schemas/BlueskyPlatform"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Bluesky configuration"
+        },
+        "substack": {
+          "anyOf": [
+            {
+              "$ref": "#/components/schemas/SubstackPlatform"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Substack Notes configuration"
+        },
+        "x_article": {
+          "anyOf": [
+            {
+              "$ref": "#/components/schemas/XArticlePlatform"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "X Article configuration. This platform is standalone: do not combine it with other platforms."
+        }
+      },
+      "title": "Platforms",
+      "type": "object"
+    },
+    "SubstackPlatform": {
+      "additionalProperties": false,
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "enabled": {
+                "const": true
+              }
+            },
+            "required": [
+              "enabled"
+            ]
+          },
+          "then": {
+            "required": [
+              "posts"
+            ]
+          }
+        }
+      ],
+      "description": "Configuration for Substack Notes. Substack doesn't support threads, so `posts` must contain a single post.",
+      "properties": {
+        "enabled": {
+          "description": "Required. Set true and include `posts` to publish to this platform; false (no `posts`) leaves it off.",
+          "title": "Enabled",
+          "type": "boolean"
+        },
+        "posts": {
+          "description": "Single note for this platform. Required when `enabled` is true; omit when false.",
+          "items": {
+            "$ref": "#/components/schemas/SubstackPost"
+          },
+          "maxItems": 1,
+          "title": "Posts",
+          "type": "array"
+        },
+        "settings": {
+          "anyOf": [
+            {
+              "$ref": "#/components/schemas/SubstackSettings"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Substack-specific settings"
+        }
+      },
+      "required": [
+        "enabled"
+      ],
+      "title": "SubstackPlatform",
+      "type": "object"
+    },
+    "SubstackPost": {
+      "additionalProperties": false,
+      "description": "Substack note.",
+      "properties": {
+        "text": {
+          "description": "The text content of the post.",
+          "examples": [
+            "Hello world! This is my first post.",
+            "Check out this amazing update! \ud83d\ude80"
+          ],
+          "maxLength": 50000,
+          "title": "Text",
+          "type": "string"
+        },
+        "media_ids": {
+          "description": "Media IDs to attach to the post; obtain them via the media upload endpoint.",
+          "examples": [
+            [
+              "550e8400-e29b-41d4-a716-446655440000"
+            ]
+          ],
+          "items": {
+            "type": "string"
+          },
+          "maxItems": 20,
+          "title": "Media Ids",
+          "type": "array"
+        },
+        "hide_link_preview": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Hide the link-preview card (the URL stays as plain text); when false the last URL gets a preview. Omit or send null to keep the current value (false on create).",
+          "title": "Hide Link Preview"
+        },
+        "quote_post_url": {
+          "anyOf": [
+            {
+              "maxLength": 2048,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Substack note (/note/c-<id>) or post (/p/<slug>) URL to restack.",
+          "title": "Quote Post Url"
+        }
+      },
+      "required": [
+        "text"
+      ],
+      "title": "SubstackPost",
+      "type": "object"
+    },
+    "SubstackSettings": {
+      "additionalProperties": false,
+      "description": "Settings specific to Substack",
+      "properties": {},
+      "title": "SubstackSettings",
+      "type": "object"
+    },
+    "ThreadsPlatform": {
+      "additionalProperties": false,
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "enabled": {
+                "const": true
+              }
+            },
+            "required": [
+              "enabled"
+            ]
+          },
+          "then": {
+            "required": [
+              "posts"
+            ]
+          }
+        }
+      ],
+      "description": "Configuration for Threads",
+      "properties": {
+        "enabled": {
+          "description": "Required. Set true and include `posts` to publish to this platform; false (no `posts`) leaves it off.",
+          "title": "Enabled",
+          "type": "boolean"
+        },
+        "posts": {
+          "description": "Posts for this platform. Required when `enabled` is true; omit when false.",
+          "items": {
+            "$ref": "#/components/schemas/ThreadsPost"
+          },
+          "maxItems": 50,
+          "title": "Posts",
+          "type": "array"
+        },
+        "settings": {
+          "anyOf": [
+            {
+              "$ref": "#/components/schemas/ThreadsSettings"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Threads-specific settings"
+        }
+      },
+      "required": [
+        "enabled"
+      ],
+      "title": "ThreadsPlatform",
+      "type": "object"
+    },
+    "ThreadsPost": {
+      "additionalProperties": false,
+      "description": "Threads post.",
+      "properties": {
+        "text": {
+          "description": "The text content of the post.",
+          "examples": [
+            "Hello world! This is my first post.",
+            "Check out this amazing update! \ud83d\ude80"
+          ],
+          "maxLength": 50000,
+          "title": "Text",
+          "type": "string"
+        },
+        "media_ids": {
+          "description": "Media IDs to attach to the post; obtain them via the media upload endpoint.",
+          "examples": [
+            [
+              "550e8400-e29b-41d4-a716-446655440000"
+            ]
+          ],
+          "items": {
+            "type": "string"
+          },
+          "maxItems": 20,
+          "title": "Media Ids",
+          "type": "array"
+        },
+        "hide_link_preview": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Hide the link-preview card (the URL stays as plain text); when false the last URL gets a preview. Omit or send null to keep the current value (false on create).",
+          "title": "Hide Link Preview"
+        },
+        "quote_post_url": {
+          "anyOf": [
+            {
+              "maxLength": 2048,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "threads.net/threads.com post URL to quote: one of your own posts, or a recent post from a public profile once your Threads connection allows looking up public profiles.",
+          "title": "Quote Post Url"
+        }
+      },
+      "required": [
+        "text"
+      ],
+      "title": "ThreadsPost",
+      "type": "object"
+    },
+    "ThreadsSettings": {
+      "additionalProperties": false,
+      "description": "Settings specific to Threads",
+      "properties": {},
+      "title": "ThreadsSettings",
+      "type": "object"
+    },
+    "XArticlePlatform": {
+      "additionalProperties": false,
+      "description": "Configuration for an X Article draft.",
+      "properties": {
+        "content_markdown": {
+          "anyOf": [
+            {
+              "maxLength": 50000,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "X Article Markdown. The first non-empty block must be `# Title`; remaining blocks are body. Supports paragraphs, blockquotes, lists, `#`/`##` headings, bold, italic, strikethrough, links, fenced code with an optional single-token language, and standalone `---`/`***` dividers (`GET` returns `---`). Code interiors stay literal. Escape delimiter-only prose such as `\\---`. Embeds must be alone on a line: `<typ:media media_id=\"...\" />`, `<typ:x-post url=\"https://x.com/user/status/123\" />`. Preserve comment-thread marker tags from `GET` when PATCHing. `GET` returns canonical Markdown, not submitted bytes. Required when creating an X Article draft; optional on PATCH when only changing `cover_media_id`.",
+          "examples": [
+            "# Think Different, Draft Different\n\nGreat drafts start when builders **question defaults**, *shape the rough edges*, and ~~wait for perfect certainty~~ publish what helps.\n\n> The best interface is the one readers forget they are using.\n\n# Working notes\n\n- Start with a sharp title\n- Use structure before decoration\n- Link only when [context helps](https://typefully.com)\n\n## Final pass\n\n1. Cut filler\n2. Keep the useful tension\n3. Ship the clearer version\n\n```python\nprint(\"Ship it\")\n```",
+            "# My article title\n\nIntro paragraph.\n\n## Section\n\nBody text.\n\n<typ:media media_id=\"550e8400-e29b-41d4-a716-446655440000\" />\n\n<typ:x-post url=\"https://x.com/typefully/status/2025894220243063023\" />"
+          ],
+          "title": "Content Markdown"
+        },
+        "cover_media_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Optional media ID for the X Article cover image. Must reference an uploaded, ready, account-owned static image. Omit on PATCH to keep the current cover; send null to remove it.",
+          "examples": [
+            "550e8400-e29b-41d4-a716-446655440000"
+          ],
+          "title": "Cover Media Id"
+        }
+      },
+      "title": "XArticlePlatform",
+      "type": "object"
+    },
+    "XPlatform": {
+      "additionalProperties": false,
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "enabled": {
+                "const": true
+              }
+            },
+            "required": [
+              "enabled"
+            ]
+          },
+          "then": {
+            "required": [
+              "posts"
+            ]
+          }
+        }
+      ],
+      "description": "Configuration for X (Twitter)",
+      "properties": {
+        "enabled": {
+          "description": "Required. Set true and include `posts` to publish to this platform; false (no `posts`) leaves it off.",
+          "title": "Enabled",
+          "type": "boolean"
+        },
+        "posts": {
+          "description": "Posts for this platform. Required when `enabled` is true; omit when false.",
+          "items": {
+            "$ref": "#/components/schemas/XPost"
+          },
+          "maxItems": 50,
+          "title": "Posts",
+          "type": "array"
+        },
+        "settings": {
+          "anyOf": [
+            {
+              "$ref": "#/components/schemas/XSettings"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "X-specific settings"
+        }
+      },
+      "required": [
+        "enabled"
+      ],
+      "title": "XPlatform",
+      "type": "object"
+    },
+    "XPost": {
+      "additionalProperties": false,
+      "description": "Schema for individual X post content.",
+      "properties": {
+        "text": {
+          "description": "The text content of the post.",
+          "examples": [
+            "Hello world! This is my first post.",
+            "Check out this amazing update! \ud83d\ude80"
+          ],
+          "maxLength": 50000,
+          "title": "Text",
+          "type": "string"
+        },
+        "media_ids": {
+          "description": "Media IDs to attach to the post; obtain them via the media upload endpoint.",
+          "examples": [
+            [
+              "550e8400-e29b-41d4-a716-446655440000"
+            ]
+          ],
+          "items": {
+            "type": "string"
+          },
+          "maxItems": 20,
+          "title": "Media Ids",
+          "type": "array"
+        },
+        "hide_link_preview": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Hide the link-preview card (the URL stays as plain text); when false the last URL gets a preview. Omit or send null to keep the current value (false on create).",
+          "title": "Hide Link Preview"
+        },
+        "quote_post_url": {
+          "anyOf": [
+            {
+              "maxLength": 2048,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "URL of the X post to quote in this post (equivalent to Typefully's 'convert to quote' action). Accepts x.com and twitter.com URLs containing a /status/<id> segment.",
+          "examples": [
+            "https://x.com/typefully/status/2025894220243063023"
+          ],
+          "title": "Quote Post Url"
+        },
+        "subscribers_only": {
+          "default": false,
+          "description": "Visible only to paying Subscribers. Requires an X account approved for creator Subscriptions.",
+          "title": "Subscribers Only",
+          "type": "boolean"
+        },
+        "reply_settings": {
+          "anyOf": [
+            {
+              "enum": [
+                "following",
+                "mentionedUsers",
+                "subscribers",
+                "verified"
+              ],
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Who can reply. Null (default) means everyone.",
+          "title": "Reply Settings"
+        },
+        "paid_partnership": {
+          "default": false,
+          "description": "Whether this post should be labeled as a paid partnership.",
+          "title": "Paid Partnership",
+          "type": "boolean"
+        },
+        "made_with_ai": {
+          "default": false,
+          "description": "Whether this post should be labeled as made with AI.",
+          "title": "Made With Ai",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "text"
+      ],
+      "title": "XPost",
+      "type": "object"
+    },
+    "XSettings": {
+      "additionalProperties": false,
+      "description": "Settings specific to X (Twitter)",
+      "properties": {
+        "reply_to_url": {
+          "anyOf": [
+            {
+              "maxLength": 2048,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "URL of the X post to reply to. When provided, the first post in your thread will be posted as a reply.",
+          "examples": [
+            "https://x.com/therajatkapoor/status/1399394576951959554"
+          ],
+          "title": "Reply To Url"
+        },
+        "community_id": {
+          "anyOf": [
+            {
+              "maxLength": 255,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "ID of the X community to post to. Find the ID in the community URL (e.g., x.com/i/communities/1493446837214187523). You must have permission to post to the community, otherwise publishing will fail.",
+          "title": "Community Id"
+        },
+        "share_with_followers": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "When posting to a community, whether to also share the post to your timeline/followers. Defaults to true if not specified. Only has an effect when community_id is provided.",
+          "title": "Share With Followers"
+        }
+      },
+      "title": "XSettings",
+      "type": "object"
+    }
+  }
+}

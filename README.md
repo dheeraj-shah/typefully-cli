@@ -318,3 +318,18 @@ typefully draft "My take" --platform bluesky --quote-post-url https://bsky.app/p
 
 Threads, Bluesky, Mastodon and Substack quotes apply to the first new post. Existing X
 thread behavior is retained. See [quote compatibility notes](docs/quote-parity.md).
+
+### Complete request input and media alt text
+
+`draft-payload create --file draft.json --validate-only` validates the reviewed public
+API schema offline. Remove `--validate-only` and select `--account` to submit.
+Use `draft-payload update --draft-id ID --file update.json` for per-post settings,
+explicit null/false clearing, or advanced fields. This is **request input**;
+`--json` on existing commands only controls output. The new advanced commands
+always emit JSON. Platform arrays replace content: retain posts/comment markers
+and settings you want to keep. `publish_at: "now"` really requests publication.
+
+`upload image.png --alt-text "Description"` sets alt text before attachment.
+`media-update MEDIA_ID --alt-text "New description"` or `--clear-alt-text` changes
+stored media; previously attached drafts keep their existing metadata snapshot.
+See [the full public capability matrix and remaining MCP boundaries](docs/upstream-parity.md).
