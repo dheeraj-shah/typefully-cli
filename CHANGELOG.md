@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- Add schema-backed `draft-payload` request-file input with offline validation, per-post fields and null/false clearing; keep `--json` as output-only.
+- Add X reply/subscriber/community flags, LinkedIn first-comment/reshare fields, upload alt text and media metadata updates.
+- Follow social-set pagination, accept repeated tag filters and reject negative offsets; document every public API operation and unverified MCP/product-only boundaries.
+
+
 - Repair upstream monitoring: validate official public sources, expose fetch failures, deduplicate reports, and advance baselines only after successful reporting.
 - Pin CI to Ubuntu 22.04 to retain Python 3.9 compatibility; isolate Fish completion tests from the real home directory.
 - Extend `--quote-post-url` / `--qrt` to the documented Threads, Bluesky, Mastodon and Substack quote targets.
