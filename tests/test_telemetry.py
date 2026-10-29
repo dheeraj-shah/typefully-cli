@@ -47,7 +47,7 @@ def test_first_notice_no_send_then_exact_payload(setup, capsys, monkeypatch):
     client.stream.assert_called_once_with(
         "POST", "https://collector.invalid/usage",
         headers={"Content-Type": "application/json", "User-Agent": "typefully-cli"},
-        json={"version": "0.3.0", "category": "drafts"},
+        json={"version": "0.4.0", "category": "drafts"},
     )
 
 
@@ -200,7 +200,7 @@ def test_actual_transport_has_only_minimal_request_and_no_redirect(setup, monkey
     request = requests[0]
     assert str(request.url) == "https://collector.invalid/usage"
     assert request.method == "POST"
-    assert request.content == b'{"version":"0.3.0","category":"drafts"}'
+    assert request.content == b'{"version":"0.4.0","category":"drafts"}'
     assert dict(request.headers) == {
         "host": "collector.invalid",
         "content-type": "application/json",

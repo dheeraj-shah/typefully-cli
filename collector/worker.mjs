@@ -1,5 +1,5 @@
 // This collector deliberately never records request headers, IPs, or event-level data.
-const VERSIONS = new Set(['0.3.0']);
+const VERSIONS = new Set(['0.3.0', '0.4.0']);
 const CATEGORIES = new Set(['account', 'drafts', 'publishing', 'media', 'tags', 'analytics', 'comments', 'queue']);
 const MAX_BYTES = 256;
 
