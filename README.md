@@ -333,3 +333,11 @@ and settings you want to keep. `publish_at: "now"` really requests publication.
 `media-update MEDIA_ID --alt-text "New description"` or `--clear-alt-text` changes
 stored media; previously attached drafts keep their existing metadata snapshot.
 See [the full public capability matrix and remaining MCP boundaries](docs/upstream-parity.md).
+
+### Agent skill
+
+The repository's [Typefully CLI skill](skills/typefully-cli/SKILL.md) describes these
+Python CLI commands, local validation and authorization boundaries. It is distinct
+from Typefully's official JavaScript agent skill. Check the installed CLI's help:
+maintenance-branch features are not available in an older published package until
+an approved release is made.
