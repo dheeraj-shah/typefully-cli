@@ -161,7 +161,8 @@ class TestInstall:
         with patch("typefully_cli.completions.SCRIPT_PATHS", patched_paths), \
              patch("typefully_cli.completions.RC_PATHS", patched_rc), \
              patch("typefully_cli.completions._generate_script", return_value=FAKE_SCRIPT), \
-             patch("typefully_cli.completions._detect_shell", return_value="fish"):
+             patch("typefully_cli.completions._detect_shell", return_value="fish"), \
+             patch("typefully_cli.completions.Path.home", return_value=tmp_path):
             result = runner.invoke(cli, ["completions", "install"])
 
         assert result.exit_code == 0

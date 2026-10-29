@@ -303,3 +303,18 @@ See [CONTRIBUTING.md](CONTRIBUTING.md).
 ## License
 
 MIT
+
+## Upstream compatibility maintenance
+
+The public-source monitor opens issues for upstream changes or failed checks; it does not
+implement or merge updates. See the [source and capability baseline](docs/upstream-parity.md)
+for monitored sources, known limits, and how maintenance coordinates with Dependabot.
+
+Native quotes route to the matching selected platform (the existing `--qrt` alias still works):
+
+```sh
+typefully draft "My take" --platform bluesky --quote-post-url https://bsky.app/profile/example.com/post/abc
+```
+
+Threads, Bluesky, Mastodon and Substack quotes apply to the first new post. Existing X
+thread behavior is retained. See [quote compatibility notes](docs/quote-parity.md).
