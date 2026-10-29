@@ -303,3 +303,41 @@ See [CONTRIBUTING.md](CONTRIBUTING.md).
 ## License
 
 MIT
+
+## Upstream compatibility maintenance
+
+The public-source monitor opens issues for upstream changes or failed checks; it does not
+implement or merge updates. See the [source and capability baseline](docs/upstream-parity.md)
+for monitored sources, known limits, and how maintenance coordinates with Dependabot.
+
+Native quotes route to the matching selected platform (the existing `--qrt` alias still works):
+
+```sh
+typefully draft "My take" --platform bluesky --quote-post-url https://bsky.app/profile/example.com/post/abc
+```
+
+Threads, Bluesky, Mastodon and Substack quotes apply to the first new post. Existing X
+thread behavior is retained. See [quote compatibility notes](docs/quote-parity.md).
+
+### Complete request input and media alt text
+
+`draft-payload create --file draft.json --validate-only` validates the reviewed public
+API schema offline. Remove `--validate-only` and select `--account` to submit.
+Use `draft-payload update --draft-id ID --file update.json` for per-post settings,
+explicit null/false clearing, or advanced fields. This is **request input**;
+`--json` on existing commands only controls output. The new advanced commands
+always emit JSON. Platform arrays replace content: retain posts/comment markers
+and settings you want to keep. `publish_at: "now"` really requests publication.
+
+`upload image.png --alt-text "Description"` sets alt text before attachment.
+`media-update MEDIA_ID --alt-text "New description"` or `--clear-alt-text` changes
+stored media; previously attached drafts keep their existing metadata snapshot.
+See [the full public capability matrix and remaining MCP boundaries](docs/upstream-parity.md).
+
+### Agent skill
+
+The repository's [Typefully CLI skill](skills/typefully-cli/SKILL.md) describes these
+Python CLI commands, local validation and authorization boundaries. It is distinct
+from Typefully's official JavaScript agent skill. Check the installed CLI's help:
+maintenance-branch features are not available in an older published package until
+an approved release is made.

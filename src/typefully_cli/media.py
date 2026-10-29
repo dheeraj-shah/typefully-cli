@@ -34,6 +34,7 @@ def upload_media(
     file_path: str,
     console: Console,
     timeout: int = 60,
+    alt_text: str | None = None,
 ) -> dict:
     """Upload a media file and poll until ready. Returns {media_id, status}."""
     if not os.path.isfile(file_path):
@@ -43,7 +44,7 @@ def upload_media(
 
     # Step 1: Get presigned upload URL
     console.status(f"Requesting upload URL for {file_name}...")
-    upload_response = client.request_upload(social_set_id, file_name)
+    upload_response = client.request_upload(social_set_id, file_name, **({"alt_text": alt_text} if alt_text is not None else {}))
     media_id = upload_response.get("media_id", "")
     upload_url = upload_response.get("upload_url", "")
     if not media_id or not upload_url:
