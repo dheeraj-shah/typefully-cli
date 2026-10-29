@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.4.0 (unreleased)
+
+- Add minimal default-on usage telemetry for interactive text commands only, after a visible disclosure. The first notice invocation sends nothing.
+- Disable with `TYPEFULLY_TELEMETRY=0` or `typefully config set telemetry_enabled false`. CI, noninteractive, JSON and quiet runs are excluded.
+- Send only CLI version and command category to a maintainer-owned collector; store daily aggregate counts, not unique-user IDs or content. Network infrastructure still sees source IP.
+- Add strict collector validation, privacy documentation and mocked telemetry tests. See `docs/telemetry.md` for retention and limits.
+
 ## 0.3.0 (2026-10-29)
 
 - Add schema-backed `draft-payload` request-file input with offline validation, per-post fields and null/false clearing; keep `--json` as output-only.

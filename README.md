@@ -296,6 +296,14 @@ account = "MyBrand"
 output_format = "text"   # or "json" for agent/script use
 ```
 
+## Usage telemetry
+
+This unreleased branch counts CLI version and command category only through a
+maintainer-owned collector, after a visible notice. The first notice invocation
+sends nothing. Published 0.3.0 installations are unchanged until a new release.
+Disable with `TYPEFULLY_TELEMETRY=0` or
+`typefully config set telemetry_enabled false`. See [privacy and activation details](docs/telemetry.md).
+
 ## Contributing
 
 See [CONTRIBUTING.md](CONTRIBUTING.md).

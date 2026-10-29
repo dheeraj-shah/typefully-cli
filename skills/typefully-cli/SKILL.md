@@ -6,8 +6,8 @@ description: Use this repository's Python Typefully CLI to inspect accounts and 
 # Typefully CLI
 
 Run `typefully --help` and the selected command's `--help` before assuming flags.
-This skill describes the maintenance branch's unreleased behavior; older installed
-packages may lack these commands. Do not treat repository documentation as proof
+This skill describes the 0.4.0 release candidate; older installed
+packages may lack these commands or telemetry controls. Do not treat repository documentation as proof
 that the installed package has been upgraded.
 
 ## Access and output
@@ -17,6 +17,16 @@ Do not print keys or create credentials as part of a test. `accounts --json` lis
 connected sets; a configured default is not proof it is the intended destination.
 `--json` controls **output**, not the request body. Most commands also offer text
 output; `draft-payload` and `media-update` always emit structured JSON.
+
+## Usage telemetry
+
+For automation, set `TYPEFULLY_TELEMETRY=0` explicitly. CI, noninteractive,
+`--json` and quiet runs do not send telemetry. Interactive text runs display a
+notice before any later sending; the notice invocation sends nothing. Disable
+persistently with `typefully config set telemetry_enabled false`. Only version
+and command category are sent, never post content, credentials or account IDs.
+The maintainer-owned host sees source IP; do not call this fully anonymous.
+See `docs/telemetry.md` for the recipient and retention details.
 
 ## Prepare and validate
 
