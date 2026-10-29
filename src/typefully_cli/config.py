@@ -36,6 +36,7 @@ class Config:
     output_format: str = "text"
     default_platforms: str = ""
     timezone: str = ""
+    telemetry_enabled: bool = True
     _path: Path = field(default_factory=_config_path)
 
     @classmethod
@@ -54,6 +55,8 @@ class Config:
         cfg.output_format = defaults.get("output_format", "text")
         cfg.default_platforms = defaults.get("platforms", "")
         cfg.timezone = defaults.get("timezone", "")
+        # Fail closed on malformed values rather than silently enabling collection.
+        cfg.telemetry_enabled = data.get("telemetry", {}).get("enabled", True) is True
         return cfg
 
     def save(self) -> None:
@@ -77,6 +80,7 @@ class Config:
         if self.timezone:
             lines.append(f'timezone = "{_toml_escape(self.timezone)}"')
         lines.append("")
+        lines.extend(["[telemetry]", f"enabled = {str(self.telemetry_enabled).lower()}", ""])
         self._path.write_text("\n".join(lines))
         os.chmod(self._path, 0o600)
 
@@ -86,6 +90,7 @@ class Config:
                 "api_key": _redact(self.api_key) if redact else self.api_key,
             },
             "defaults": {},
+            "telemetry": {"enabled": self.telemetry_enabled},
         }
         if self.onepassword_item:
             d["auth"]["onepassword_item"] = self.onepassword_item
@@ -103,7 +108,7 @@ class Config:
 
 _VALID_KEYS = {
     "api_key", "default_account", "onepassword_item", "output_format",
-    "default_platforms", "timezone",
+    "default_platforms", "timezone", "telemetry_enabled",
 }
 
 _KNOWN_PLATFORMS = {"x", "linkedin", "threads", "bluesky", "mastodon"}
@@ -138,7 +143,11 @@ def config_set(cfg: Config, key: str, value: str) -> dict:
     """Set a config key. Returns the result dict (api_key redacted)."""
     if key not in _VALID_KEYS:
         raise ValueError(f"Unknown config key: {key}. Valid: {', '.join(sorted(_VALID_KEYS))}")
-    if key == "api_key":
+    if key == "telemetry_enabled":
+        if value.lower() not in {"true", "false"}:
+            raise ValueError("telemetry_enabled must be true or false")
+        cfg.telemetry_enabled = value.lower() == "true"
+    elif key == "api_key":
         cfg.api_key = value
     elif key == "default_account":
         cfg.default_account = value

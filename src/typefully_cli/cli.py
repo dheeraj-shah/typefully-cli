@@ -24,6 +24,7 @@ from typefully_cli.exceptions import APIError, TypefullyError
 from typefully_cli.media import upload_media
 from typefully_cli import output as fmt
 from typefully_cli.completions import completions
+from typefully_cli.telemetry import record_usage
 
 
 # --- Shared option decorator ---
@@ -42,6 +43,12 @@ def shared_options(f):
     @click.option("--debug", is_flag=True, hidden=True, help="Log HTTP requests to stderr")
     @wraps(f)
     def wrapper(*args, **kwargs):
+        ctx = click.get_current_context(silent=True)
+        if ctx is not None:
+            record_usage(
+                ctx.find_root().invoked_subcommand,
+                quiet=kwargs.get("quiet", False) or kwargs.get("use_json", False),
+            )
         return f(*args, **kwargs)
 
     return wrapper
