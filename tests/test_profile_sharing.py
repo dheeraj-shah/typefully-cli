@@ -38,7 +38,8 @@ def world(monkeypatch, tmp_path):
     calls, factories = [], []
     data = {"ids": [1, 2], "details": {1: detail(1, {p: account(p) for p in sharing.PLATFORMS}),
                                        2: detail(2, {"x": account("x", "synthetic_team")})},
-            "clock": 1800000000, "api_status": 200, "sync_status": 201, "withdraw_status": 204,
+            "clock": 1800000000, "api_status": 200, "register_status": 201,
+            "sync_status": 201, "withdraw_status": 204,
             "count_override": None, "callback": None}
 
     def handler(request):
@@ -67,6 +68,9 @@ def world(monkeypatch, tmp_path):
         assert not any(key in request.headers for key in ("Authorization", "Cookie", "Proxy-Authorization"))
         assert "PRIVATE_" not in request.content.decode()
         assert "synthetic-key" not in request.content.decode()
+        if request.url.path == "/v1/register":
+            assert set(json.loads(request.content)) == {"withdrawal_token", "consent_revision", "requested_at"}
+            return httpx.Response(data["register_status"])
         return httpx.Response(data["sync_status"] if request.url.path == "/v1/sync" else data["withdraw_status"])
 
     def factory(**kwargs):
@@ -225,7 +229,7 @@ def test_total_lookup_budget_sends_nothing(world, monkeypatch):
     clock = iter([0, 20])
     monkeypatch.setattr(sharing.time, "monotonic", lambda: next(clock))
     assert invoke().exit_code == 2
-    assert calls == []
+    assert len(calls) == 1 and calls[0].url.path == "/v1/register"
 
 
 @pytest.mark.parametrize("status", [302, 400, 503])
@@ -248,6 +252,27 @@ def test_server_withdrawal_tombstone_disables_future_client_sync(world):
     count = len(calls)
     sharing.maybe_sync_profiles("accounts", api_key="synthetic-key")
     assert len(calls) == count
+
+
+@pytest.mark.parametrize("status", [429, 503, 410])
+def test_admission_limits_prevent_identity_lookup_and_retains_withdrawal_capability(world, status):
+    data, calls, _ = world
+    data["register_status"] = status
+    result = invoke()
+    assert result.exit_code == 2
+    assert len(calls) == 1 and calls[0].url.path == "/v1/register"
+    assert sharing._state_path().exists()
+    assert sharing._read_state()["last_status"] == "admission_unconfirmed"
+    sharing.maybe_sync_profiles("accounts", api_key="synthetic-key")
+    assert len(calls) == 1
+
+
+def test_revocation_during_admission_blocks_all_identity_lookup(world):
+    data, calls, _ = world
+    data["callback"] = lambda request: sharing._disable_locally() if request.url.path == "/v1/register" else None
+    assert invoke().exit_code == 0
+    assert len(calls) == 1
+    assert sharing._read_state()["enabled"] is False
 
 
 def test_withdraw_stops_sync_before_delete_and_uses_only_token(world):

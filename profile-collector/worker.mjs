@@ -1,11 +1,13 @@
 // Inactive draft service. Separate identity storage; no request logging or profile URL fetches.
+import { SQL, register, spendRequest, sync, withdraw } from './storage.mjs';
 const MAX_BYTES = 131072;
 const MAX_SNAPSHOT_BYTES = 65536;
-const RETENTION = 90 * 86400;
 const TOKEN = /^[a-f0-9]{64}$/;
 const PLATFORMS = ['x', 'linkedin', 'bluesky', 'threads', 'mastodon', 'substack'];
 const RESERVED = new Set(['local', 'localhost', 'internal', 'invalid', 'test', 'example', 'onion', 'alt', 'arpa']);
-const response = (status) => new Response(null, { status, headers: { 'Cache-Control': 'no-store' } });
+const response = (status) => new Response(null, { status, headers: {
+  'Cache-Control': 'no-store', ...([429, 503].includes(status) ? { 'Retry-After': '86400' } : {}),
+} });
 
 function publicUrl(value, platform) {
   if (typeof value !== 'string' || !value.length || value.length > 2048
@@ -51,7 +53,7 @@ function validProfiles(profiles) {
   });
 }
 
-async function payload(request) {
+async function payload(request, limit) {
   if (!request.body) throw new Error('invalid');
   const reader = request.body.getReader();
   const chunks = [];
@@ -61,7 +63,7 @@ async function payload(request) {
       const { done, value } = await reader.read();
       if (done) break;
       size += value.byteLength;
-      if (size > MAX_BYTES) {
+      if (size > limit) {
         await reader.cancel();
         throw new Error('invalid');
       }
@@ -90,48 +92,44 @@ async function digest(token) {
 export default {
   async fetch(request, env) {
     const url = new URL(request.url);
-    if (!['/v1/sync', '/v1/withdraw'].includes(url.pathname) || url.search) return response(404);
+    if (!['/v1/register', '/v1/sync', '/v1/withdraw'].includes(url.pathname) || url.search) return response(404);
     if (request.method !== 'POST') return response(405);
     if (request.headers.get('content-type') !== 'application/json') return response(415);
     const now = Math.floor(Date.now() / 1000);
+    // Admission/sync floods spend a global atomic budget before potentially large bodies are read.
+    // Withdrawal uses a tiny body first: known tokens bypass budgets; unknown tokens spend it later.
+    if (url.pathname !== '/v1/withdraw') {
+      try {
+        if (!await spendRequest(env.PROFILES, now)) return response(429);
+      } catch { return response(503); }
+    }
     let data;
     try {
-      data = await payload(request);
+      data = await payload(request, url.pathname === '/v1/sync' ? MAX_BYTES : 256);
       const keys = Object.keys(data).sort().join(',');
       if (url.pathname === '/v1/sync') {
         if (keys !== 'consent_revision,profiles,snapshot_at,withdrawal_token' || data.consent_revision !== '3'
             || !Number.isSafeInteger(data.snapshot_at) || Math.abs(data.snapshot_at - now) > 300
             || !validProfiles(data.profiles)) throw new Error('invalid');
+      } else if (url.pathname === '/v1/register') {
+        if (keys !== 'consent_revision,requested_at,withdrawal_token' || data.consent_revision !== '3'
+            || !Number.isSafeInteger(data.requested_at) || Math.abs(data.requested_at - now) > 300) throw new Error('invalid');
       } else if (keys !== 'withdrawal_token') throw new Error('invalid');
     } catch {
       return response(400);
     }
     try {
       const hash = await digest(data.withdrawal_token);
-      if (url.pathname === '/v1/withdraw') {
-        // A hash-only tombstone prevents late in-flight uploads restoring deleted profiles.
-        await env.PROFILES.prepare(`INSERT INTO profile_snapshots
-          (token_hash, profiles_json, consent_revision, expires_at) VALUES (?, NULL, '3', ?)
-          ON CONFLICT(token_hash) DO UPDATE SET profiles_json = NULL, expires_at = excluded.expires_at`)
-          .bind(hash, now + RETENTION).run();
-        return response(204);
-      }
-      const result = await env.PROFILES.batch([
-        env.PROFILES.prepare('DELETE FROM profile_snapshots WHERE expires_at <= ?').bind(now),
-        env.PROFILES.prepare(`INSERT INTO profile_snapshots
-          (token_hash, profiles_json, consent_revision, expires_at) VALUES (?, ?, '3', ?)
-          ON CONFLICT(token_hash) DO UPDATE SET profiles_json = excluded.profiles_json,
-            expires_at = excluded.expires_at
-          WHERE profile_snapshots.profiles_json IS NOT NULL`)
-          .bind(hash, JSON.stringify(data.profiles), now + RETENTION),
-      ]);
-      return response(result[1].meta.changes ? 201 : 410);
-    } catch {
+      if (url.pathname === '/v1/withdraw') return response(await withdraw(env.PROFILES, hash, now));
+      if (url.pathname === '/v1/register') return response(await register(env.PROFILES, hash, now));
+      return response(await sync(env.PROFILES, hash, data.profiles, now));
+    } catch (error) {
+      if (String(error?.message).includes('profile_admission_limit')) return response(429);
       return response(503);
     }
   },
   async scheduled(_controller, env) {
-    await env.PROFILES.prepare('DELETE FROM profile_snapshots WHERE expires_at <= ?')
+    await env.PROFILES.prepare(SQL.cleanup)
       .bind(Math.floor(Date.now() / 1000)).run();
   },
 };

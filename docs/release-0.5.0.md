@@ -32,21 +32,25 @@ Nothing below has been performed. The profile endpoint remains empty.
    added to the anonymous `daily_counts` database.
 2. Enable the exact recipient
    `https://typefully-cli-profiles.dheeraj-personal-site.workers.dev`, exposing
-   only `POST /v1/sync` and `POST /v1/withdraw`. No public list/read API, custom
+   only `POST /v1/register`, `POST /v1/sync` and `POST /v1/withdraw`. No public list/read API, custom
    domain, preview URL, secret, API key or permission/security grant is added.
 3. Add daily cleanup cron **`15 3 * * *` (03:15 UTC)**. Keep effective request,
    invocation, trace, persistence, Logpush and tail-consumer logging disabled.
    Review account-level exports and current D1 backups/plan before describing
    retention. The plan must remain unchanged; no upgrade or quota increase is
    authorized.
-4. Review public-write abuse/quota handling before opening the route. The client
-   is limited to daily bounded snapshots and the service strictly bounds and
-   validates input, but it is intentionally not a proof of account ownership and
-   hostile callers can fabricate public-profile submissions. No platform request
-   or API credential is used server-side to verify a profile. Provider-side
-   request/capacity controls, if needed, must be reviewed as exact additional
-   configuration; do not add undisclosed IP tracking, new credentials or paid
-   resources. This public-write control remains an activation decision.
+4. Review the implemented strict D1 ceilings: 30 guarded requests per UTC minute,
+   2,000 per UTC day, 50 new records per UTC day, and 1,000 total records including
+   pending/active/revoked. Each profile JSON is capped at 64 KiB (at most 62.5 MiB
+   total logical JSON), each admitted token updates at most daily, and empty
+   reservations expire after one hour. All limits apply across Worker instances.
+   Known-token deletion bypasses those quotas; unknown withdrawal allocates
+   nothing and shares the request budget. No rate-limit binding, KV, Durable
+   Object, new credential or permission is required. Confirm these conservative
+   traffic/capacity thresholds before activation; changing them requires review
+   of both source and schema. Exhaustion deliberately rejects admission/uploads
+   rather than increasing capacity or billing. The service still does not prove
+   ownership and attackers can consume shared admission or provider quotas.
 5. Bind that fixed endpoint in `profile_sharing.py` and review its disclosure
    together with effective backend settings. Run local/mocked acceptance again
    on the activated candidate. No real-account lookup, real-profile submission
@@ -59,12 +63,51 @@ Nothing below has been performed. The profile endpoint remains empty.
 
 ## Required validation before publication
 
+### Account, effective configuration and backup checks before activation
+
+Do these read-only checks against the exact personal account before creating or
+opening the service; no result from the earlier aggregate collector proves the
+new service's current plan/settings:
+
+- Confirm current Workers/D1 plan, shared daily request/read/write allowances,
+  remaining database/account storage, database slots and cron slots. Check other
+  workloads sharing those allowances. The design uses only Workers + D1; no paid
+  add-on is necessary. Do not activate under an unverified Free-plan assumption.
+  A Paid plan or insufficient remaining allowance requires a new cost/capacity
+  decision; never upgrade or change grants automatically. Application request
+  gates do not prevent incoming HTTP invocations from counting at Cloudflare.
+- Verify the new database ID/binding and disabled read replication, apply the
+  complete schema including the singleton budget and triggers, and verify its
+  exact checks/ceilings before routing traffic. Bundle both `worker.mjs` and
+  imported `storage.mjs`; do not upload the entry module alone.
+- Verify effective deployed version metadata and settings disable observability,
+  invocation logs, log/trace persistence, Logpush, tail consumers and preview
+  URLs. Review account-level exports/destinations as well as source configuration.
+  A template or a settings response omitting disabled fields is not full proof.
+- Verify actual D1 Time Travel/backup retention for the current plan and any
+  operator exports. Current documented recovery windows are 7 days on Free and
+  30 on Paid; confirm the applicable configuration before the disclosure is
+  approved. Removal/expiry does not imply instant erasure from backups. Keep the
+  daily cleanup's failure/status checks available without logging profiles.
+
+Sources checked while preparing this plan:
+[Workers limits](https://developers.cloudflare.com/workers/platform/limits/),
+[D1 pricing](https://developers.cloudflare.com/d1/platform/pricing/),
+[D1 limits/backup windows](https://developers.cloudflare.com/d1/platform/limits/),
+[D1 statements and transactions](https://developers.cloudflare.com/d1/worker-api/d1-database/).
+Provider quota exhaustion/outage can still delay legitimate remote deletion;
+the client must stay locally revoked and keep its receipt for retry.
+
+### Candidate checks
+
 - Exact Python 3.9–3.13 CI, current Ruff selection, existing aggregate tests and
   connected-profile collector tests, plus local SQLite checks of actual SQL.
 - Consent/no-consent and token secrecy, all six platforms, team/newly linked
   accounts, full pagination, all-or-none failures/bounds, no returned-URL fetch,
   daily backoff, revocation during lookup, concurrent locking, rolling expiry,
-  withdrawal tombstone and delayed-upload protection.
+  withdrawal tombstone, delayed-upload protection, fresh-token/withdrawal abuse,
+  strict minute/day/new-admission/storage limits, concurrent admissions, exhausted
+  quota deletion and bounded schema constraints.
 - Wheel/sdist build and Twine metadata validation, packaged schema/profile
   module/docs/skill inclusion and source parity. Install the exact candidate in
   isolation; version/help/offline request validation and inactive privacy/status
