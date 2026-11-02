@@ -1,0 +1,14 @@
+{
+  // Inactive review template. No account, database, public route or cron is authorized here.
+  "name": "typefully-cli-handles-review",
+  "main": "worker.mjs",
+  "compatibility_date": "2026-11-02",
+  "workers_dev": false,
+  "preview_urls": false,
+  "logpush": false,
+  "observability": {
+    "enabled": false,
+    "logs": { "enabled": false, "invocation_logs": false, "persist": false },
+    "traces": { "enabled": false, "persist": false }
+  }
+}

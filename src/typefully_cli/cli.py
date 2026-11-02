@@ -1810,3 +1810,7 @@ def _build_draft_payload(
 from typefully_cli.payloads import register_commands  # noqa: E402
 
 register_commands(cli)
+
+from typefully_cli.handle_sharing import register_commands as register_handle_commands  # noqa: E402
+
+register_handle_commands(cli, shared_options, error_handler)
