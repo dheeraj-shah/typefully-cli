@@ -342,6 +342,17 @@ and settings you want to keep. `publish_at: "now"` really requests publication.
 stored media; previously attached drafts keep their existing metadata snapshot.
 See [the full public capability matrix and remaining MCP boundaries](docs/upstream-parity.md).
 
+### Optional X handle sharing (unpublished review draft)
+
+An opt-in flow is being reviewed: `typefully community share-handle` asks you to
+enter your own X handle and separately confirm sharing it with Dheeraj Shah to
+understand who uses the CLI. `typefully community privacy` shows the proposed
+fields, 90-day expiry and withdrawal path; `typefully community withdraw-handle`
+removes a submitted entry using your local receipt. It never derives a handle
+from your API key or connected accounts, and is separate from usage counting.
+This draft has no configured recipient and cannot submit a handle. It is absent
+from published 0.4.0. See the [design and activation review](docs/optional-handle-sharing.md).
+
 ### Agent skill
 
 The repository's [Typefully CLI skill](skills/typefully-cli/SKILL.md) describes these
