@@ -108,6 +108,7 @@ rows. SQL constraints/triggers check admission and capacity atomically.
 | Profile JSON | 64 KiB per record, at most 600 profiles | Rejected; SQL also enforces size/array bounds |
 | Successful updates per admitted token | At least 24 hours apart | 429; snapshot and expiry unchanged |
 | Admission/withdrawal bodies | 256 bytes | 400; no token record allocated |
+| Request-body read time | 5 seconds | 408 and cancel the stalled stream; no token record allocated |
 
 At most 62.5 MiB of profile JSON can be stored (1,000 × 64 KiB), plus bounded
 metadata/budget/index and SQLite overhead. This is a logical data ceiling, not a
