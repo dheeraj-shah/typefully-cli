@@ -54,6 +54,14 @@ One collector request has these fields:
 | `snapshot_at` | Current seconds timestamp, validated within five minutes to reject stale uploads; not stored separately |
 | `withdrawal_token` | Random 256-bit removal capability; raw value is not stored by the service |
 
+Before any identity lookup, `POST /v1/register` sends only the random withdrawal
+token, consent revision and current `requested_at` timestamp to reserve a bounded
+empty record. Failed admission causes no profile lookup. Empty reservations
+expire after one hour and idempotent replays do not extend them. Every due cycle
+confirms admission first, including recovery after inactivity. `POST /v1/sync`
+can only update an already admitted, unexpired record; it cannot insert a fresh
+token. There is no registration request before explicit consent.
+
 The source recipient is fixed, not user-configurable. Existing manual-X revision
 `1` and the one-time snapshot proposal do not authorize ongoing collection. No
 old manual-entry receipt is migrated into consent for this feature.
@@ -71,28 +79,67 @@ There is no daemon, timer process, background upload, command log or event queue
 CI, noninteractive/redirected use, JSON output, quiet/debug runs, config,
 completions, community commands and help/version do not automatically sync.
 `community sync-profiles` can perform a due interactive sync but cannot bypass the
-24-hour limit. Failures also back off for a day. Each later attempt fetches a new
+24-hour limit, which the server also enforces per admitted token. Failures also
+back off for a day. Each later attempt fetches a new
 current snapshot; it does not replay old captured data. Profile-sync failures do
 not change the triggering command's output or exit status.
 
 Bounds: 100 accessible social sets, 600 distinct profile records, 64 KiB encoded
 snapshot, 1 MiB per API response, and a ten-second lookup budget checked across
 all pages/response chunks. Per-network-operation timeouts are at most two seconds;
-one final submission adds its own timeout. These are best-effort transport bounds,
+admission and final submission add their own timeouts. These are best-effort transport bounds,
 not a hard real-time scheduling guarantee. Over-limit accounts send no partial
 data. API pagination uses fixed paths and local offsets, never returned URLs.
 Both transports disable redirects and environment/proxy credentials. The server
 limits request bodies to 128 KiB and independently validates the finite contract.
 
+## Server-side request and storage ceilings
+
+These are strict shared D1 checks, not per-process or approximate per-location
+counters. One bounded `profile_budget` row holds only the current UTC day/minute
+and aggregate request/admission counts, without per-event or per-user budget
+rows. SQL constraints/triggers check admission and capacity atomically.
+
+| Guard | Threshold | Exhaustion behavior |
+| --- | --- | --- |
+| Registration/sync and unknown-token withdrawal requests | 30 per UTC minute and 2,000 per UTC day, globally combined | 429, conservative `Retry-After: 86400`; no new admission/snapshot |
+| New token records | 50 per UTC day | 429; failed client admission prevents identity lookup |
+| Total records, including pending and revoked | 1,000 | 503 for new admission; existing-record sync/deletion remains possible |
+| Profile JSON | 64 KiB per record, at most 600 profiles | Rejected; SQL also enforces size/array bounds |
+| Successful updates per admitted token | At least 24 hours apart | 429; snapshot and expiry unchanged |
+| Admission/withdrawal bodies | 256 bytes | 400; no token record allocated |
+
+At most 62.5 MiB of profile JSON can be stored (1,000 × 64 KiB), plus bounded
+metadata/budget/index and SQLite overhead. This is a logical data ceiling, not a
+promise about physical database pages or provider backups. Expired records are
+reclaimed before admission and by daily cleanup. Expiry does not refund the daily
+admission quota. Rejected requests cannot grow counters past their ceilings, and
+older clock windows cannot reset the shared counters backwards.
+
+Known-token withdrawal bypasses request/admission/capacity quotas. It only clears
+an existing record and never inserts one. Repeating completed withdrawal does
+not write again or extend its expiry. Unknown tokens allocate no record and use
+the shared request gate: 204/no-op while budget remains, 429 when exhausted. Each
+request still needs one small indexed existence check.
+
+These controls bound stored data and admitted work; an attacker can still consume
+the shared admission budget or provider HTTP/read quotas. They do not establish
+profile ownership. Known deletion bypasses this application's quotas, but a
+Cloudflare/D1 outage or exhausted account allowance can still delay it. Local
+revocation remains effective and the receipt permits retry. No automatic
+capacity, plan or credential increase occurs.
+
 ## Retention means rolling 90 days
 
-The dedicated database stores only `token_hash`, `profiles_json`,
-`consent_revision`, and `expires_at`. Every successful sync atomically replaces
+Each profile record stores only `token_hash`, `profiles_json`, `consent_revision`,
+internal lifecycle `status` (pending/active/revoked), and `expires_at`. The
+singleton operational budget row is described above. Every successful sync atomically replaces
 the prior snapshot and sets expiry to 90 days after that sync. **Active use can
 retain the current profiles indefinitely until withdrawal.** Old snapshots are
 not kept as history. After 90 days without successful sync, the snapshot expires;
-maintainer reads exclude it, and daily cleanup removes it within the next 24
-hours. Consent remains local until revoked, so later eligible use can create a
+maintainer reads exclude it, and the next successful daily cleanup removes it,
+normally within 24 hours. Failed/quota-blocked cleanup needs operator attention.
+Consent remains local until revoked, so later eligible use can obtain admission for a
 fresh current snapshot after inactivity.
 
 There is no join to command counts, release version, social-set ID, machine ID,
@@ -126,10 +173,13 @@ flight, local revocation remains effective and the command asks the person to
 retry remote deletion once it finishes.
 
 Removal uses only the capability and needs no Typefully credentials or account
-lookup. Confirmed withdrawal replaces all remote profile data with a **hash-only
+lookup. Confirmed withdrawal replaces an existing admitted record's data with a **hash-only
 tombstone** for 90 days, preventing delayed requests from restoring it. No profile
 identifier remains in that tombstone. Five-minute request freshness also rejects
-very old in-flight payloads after the tombstone expires. Successful removal clears
+very old in-flight payloads after the tombstone expires. Unknown tokens cannot
+create tombstones. An initial admission finishing after uncertain withdrawal can
+leave only a bounded empty one-hour reservation; the stopped client performs no
+profile lookup or upload. Successful removal clears
 the local receipt; failures retain it for explicit deletion retry while sync stays
 disabled. A new opt-in after removal generates a new capability. The source never
 automatically re-enables consent or silently sends a token to a new recipient.

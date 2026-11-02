@@ -273,7 +273,7 @@ def _submit(path: str, payload: dict, expected: int) -> None:
         with client.stream("POST", _base_url() + path, headers={
             "Content-Type": "application/json", "User-Agent": "typefully-cli",
         }, json=payload) as response:
-            if path == "/v1/sync" and response.status_code == 410:
+            if path in {"/v1/register", "/v1/sync"} and response.status_code == 410:
                 _disable_locally()
             if response.status_code != expected:
                 _error("The service did not confirm the request. Keep the receipt for withdrawal.",
@@ -287,8 +287,16 @@ def _sync_locked(state: dict, key: str | None = None, explicit: bool = False) ->
         return False
     state.update(last_attempt=now, last_status="pending")
     _save_state(state)
-    phase = "lookup"
+    phase = "admission"
     try:
+        # Reserve a bounded empty record before any identity lookup. Sync cannot create records.
+        _submit("/v1/register", {"withdrawal_token": state["token"], "consent_revision": CONSENT_REVISION,
+                                 "requested_at": now}, 201)
+        if _stop_path().exists():
+            state.update(enabled=False, last_status="stopped")
+            _save_state(state)
+            return False
+        phase = "lookup"
         if key is None:
             cfg = Config.load()
             if explicit:
@@ -311,10 +319,13 @@ def _sync_locked(state: dict, key: str | None = None, explicit: bool = False) ->
         _save_state(state)
         return True
     except Exception as error:
-        state["last_status"] = "lookup_failed" if phase == "lookup" else "submission_unconfirmed"
+        state["last_status"] = {"lookup": "lookup_failed", "admission": "admission_unconfirmed"}.get(
+            phase, "submission_unconfirmed")
         _save_state(state)
         if explicit:
-            if phase == "lookup":
+            if phase == "admission":
+                message = "Collector admission was not confirmed. No new identity lookup was performed."
+            elif phase == "lookup":
                 message = (str(error) if isinstance(error, TypefullyError)
                            and error.code == "profile_lookup_failed"
                            else "Profile lookup failed. No new snapshot was sent.")
@@ -353,6 +364,8 @@ def _disclosure() -> str:
         "ONE opt-in covers ALL accounts your API key can access, including team/client\n"
         "accounts and profiles connected later: X, LinkedIn, Bluesky, Threads, Mastodon, Substack.\n"
         "Confirm you have permission to share those managed/client profiles.\n"
+        "After consent we first send the random withdrawal token, consent revision and\n"
+        "request time to reserve capacity. Only confirmed admission allows profile lookup.\n"
         "We read the documented public usernames and profile URLs from Typefully, then\n"
         "send only platform, username/URL, consent revision, snapshot time and a random\n"
         "withdrawal token to " + (PROFILE_ENDPOINT or "[inactive: no recipient configured]") + ".\n"
