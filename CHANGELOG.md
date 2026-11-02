@@ -1,6 +1,15 @@
 # Changelog
 
-## 0.4.0 (unreleased)
+## 0.5.0 (unreleased, inactive profile-sharing review)
+
+- Add one explicit default-no opt-in for ongoing sharing of public usernames/profile URLs from all API-accessible social sets, including managed/client accounts and profiles linked later.
+- Cover the documented X, LinkedIn, Bluesky, Threads, Mastodon and Substack profile fields. Read only after consent; never send credentials, names, emails, avatars, internal IDs or content.
+- Sync at most daily on eligible interactive use, with bounded complete snapshots, no background daemon, arbitrary URL fetches, partial uploads or automatic retries within the day.
+- Add immediate local revocation and capability-based whole-snapshot deletion, including a hash-only withdrawal tombstone to prevent delayed upload resurrection.
+- Keep only the current snapshot with rolling 90-day expiry after the last successful sync. Active use can retain current profiles indefinitely; withdrawal removes profile data immediately.
+- Profile service remains undeployed and the recipient is empty. Prepare source-only 0.5.0 aggregate collector allowlist; its production deployment and package/Homebrew publication remain separately gated.
+
+## 0.4.0 (2026-10-29)
 
 - Add minimal default-on usage telemetry for interactive text commands only, after a visible disclosure. The first notice invocation sends nothing.
 - Disable with `TYPEFULLY_TELEMETRY=0` or `typefully config set telemetry_enabled false`. CI, noninteractive, JSON and quiet runs are excluded.

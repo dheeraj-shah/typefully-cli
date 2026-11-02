@@ -342,20 +342,23 @@ and settings you want to keep. `publish_at: "now"` really requests publication.
 stored media; previously attached drafts keep their existing metadata snapshot.
 See [the full public capability matrix and remaining MCP boundaries](docs/upstream-parity.md).
 
-### Optional X handle sharing (unpublished review draft)
+### Optional connected profiles (unpublished 0.5.0 candidate)
 
-This manual-entry proposal is superseded by a single opt-in for all supported
-connected profiles. See the [current design checkpoint](docs/connected-profile-sharing-checkpoint.md).
-Implementation is awaiting that scope review; the older inactive flow below is historical.
+Profile sharing is off by default and inactive in this review draft. After a
+separately approved activation, `typefully community share-profiles` offers one
+explicit opt-in covering every account your API key can access, including
+team/client accounts and profiles linked later. It shares only documented public
+usernames/profile URLs for X, LinkedIn, Bluesky, Threads, Mastodon and Substack.
+Declining triggers no identity lookup or submission. You must have permission to
+share the managed/client profiles covered by that consent.
 
-An opt-in flow is being reviewed: `typefully community share-handle` asks you to
-enter your own X handle and separately confirm sharing it with Dheeraj Shah to
-understand who uses the CLI. `typefully community privacy` shows the proposed
-fields, 90-day expiry and withdrawal path; `typefully community withdraw-handle`
-removes a submitted entry using your local receipt. It never derives a handle
-from your API key or connected accounts, and is separate from usage counting.
-This draft has no configured recipient and cannot submit a handle. It is absent
-from published 0.4.0. See the [design and activation review](docs/optional-handle-sharing.md).
+After opt-in, a complete current snapshot syncs at most daily during eligible
+interactive CLI use. Each successful sync restarts a rolling 90-day expiry;
+active use can retain current profiles indefinitely. `community status` is local;
+`community withdraw-profiles` stops sync immediately and removes the remote
+profiles using the private local receipt. Anonymous usage counts remain separate.
+See [scope, data, ongoing sync, retention and removal](docs/profile-sharing.md)
+and the [0.5.0 activation/publication plan](docs/release-0.5.0.md).
 
 ### Agent skill
 
