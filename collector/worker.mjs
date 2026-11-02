@@ -1,5 +1,6 @@
 // This collector deliberately never records request headers, IPs, or event-level data.
-const VERSIONS = new Set(['0.3.0', '0.4.0']);
+// Candidate 0.5.0 addition is not deployed; activation needs separate approval.
+const VERSIONS = new Set(['0.3.0', '0.4.0', '0.5.0']);
 const CATEGORIES = new Set(['account', 'drafts', 'publishing', 'media', 'tags', 'analytics', 'comments', 'queue']);
 const MAX_BYTES = 256;
 

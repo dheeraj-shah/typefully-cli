@@ -41,13 +41,13 @@ test('every category stores only daily aggregate dimensions; never headers', asy
   }
 });
 
-test('accepts both reviewed release versions without broadening the allowlist', async () => {
-  for (const version of ['0.3.0', '0.4.0']) {
+test('accepts only the reviewed releases and prepared 0.5.0 candidate', async () => {
+  for (const version of ['0.3.0', '0.4.0', '0.5.0']) {
     const db = database();
     assert.equal((await worker.fetch(request({ version, category: 'drafts' }), { COUNTS: db })).status, 204);
     assert.equal(db.batches[0][1].values[1], version);
   }
-  for (const version of ['0.4.0-rc.1', '0.4.1', '0.5.0']) {
+  for (const version of ['0.4.0-rc.1', '0.4.1', '0.5.0-rc.1', '0.5.1', '0.6.0']) {
     const db = database();
     assert.equal((await worker.fetch(request({ version, category: 'drafts' }), { COUNTS: db })).status, 400);
     assert.deepEqual(db.batches, []);
