@@ -1,6 +1,6 @@
 # Changelog
 
-## 0.5.0 (unreleased, inactive profile-sharing review)
+## 0.5.0 (2026-11-02)
 
 - Add one explicit default-no opt-in for ongoing sharing of public usernames/profile URLs from all API-accessible social sets, including managed/client accounts and profiles linked later.
 - Cover the documented X, LinkedIn, Bluesky, Threads, Mastodon and Substack profile fields. Read only after consent; never send credentials, names, emails, avatars, internal IDs or content.
@@ -8,7 +8,8 @@
 - Add immediate local revocation and capability-based whole-snapshot deletion, including a hash-only withdrawal tombstone to prevent delayed upload resurrection.
 - Require bounded empty admission before identity lookup; enforce global D1 minute/day request, daily admission, total record, payload and per-token sync limits. Unknown withdrawal creates no record; known deletion bypasses exhausted shared quotas and cannot repeatedly extend a tombstone.
 - Keep only the current snapshot with rolling 90-day expiry after the last successful sync. Active use can retain current profiles indefinitely; withdrawal removes profile data immediately.
-- Profile service remains undeployed and the recipient is empty. Prepare source-only 0.5.0 aggregate collector allowlist; its production deployment and package/Homebrew publication remain separately gated.
+- Connect the dedicated opt-in service with disabled application logging and daily expiry cleanup. Recovery backups may retain removed data for up to seven days; provider exhaustion can delay remote deletion while local revocation remains effective.
+- Allow version 0.5.0 in the separate anonymous collector without changing its payload, exclusions or opt-outs.
 
 ## 0.4.0 (2026-10-29)
 

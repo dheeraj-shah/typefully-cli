@@ -41,7 +41,7 @@ test('every category stores only daily aggregate dimensions; never headers', asy
   }
 });
 
-test('accepts only the reviewed releases and prepared 0.5.0 candidate', async () => {
+test('accepts only the reviewed releases through 0.5.0', async () => {
   for (const version of ['0.3.0', '0.4.0', '0.5.0']) {
     const db = database();
     assert.equal((await worker.fetch(request({ version, category: 'drafts' }), { COUNTS: db })).status, 204);

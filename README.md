@@ -298,9 +298,9 @@ output_format = "text"   # or "json" for agent/script use
 
 ## Usage telemetry
 
-This unreleased branch counts CLI version and command category only through a
+Version 0.4.0 and later count CLI version and command category only through a
 maintainer-owned collector, after a visible notice. The first notice invocation
-sends nothing. Published 0.3.0 installations are unchanged until a new release.
+sends nothing. Version 0.3.0 installations are unchanged.
 Disable with `TYPEFULLY_TELEMETRY=0` or
 `typefully config set telemetry_enabled false`. See [privacy and activation details](docs/telemetry.md).
 
@@ -342,10 +342,9 @@ and settings you want to keep. `publish_at: "now"` really requests publication.
 stored media; previously attached drafts keep their existing metadata snapshot.
 See [the full public capability matrix and remaining MCP boundaries](docs/upstream-parity.md).
 
-### Optional connected profiles (unpublished 0.5.0 candidate)
+### Optional connected profiles (0.5.0)
 
-Profile sharing is off by default and inactive in this review draft. After a
-separately approved activation, `typefully community share-profiles` offers one
+Profile sharing is off by default. `typefully community share-profiles` offers one
 explicit opt-in covering every account your API key can access, including
 team/client accounts and profiles linked later. It shares only documented public
 usernames/profile URLs for X, LinkedIn, Bluesky, Threads, Mastodon and Substack.

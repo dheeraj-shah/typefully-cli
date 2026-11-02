@@ -1,4 +1,4 @@
-// Inactive draft service. Separate identity storage; no request logging or profile URL fetches.
+// Separate opt-in identity storage; no request logging or profile URL fetches.
 import { SQL, register, spendRequest, sync, withdraw } from './storage.mjs';
 const MAX_BYTES = 131072;
 const MAX_SNAPSHOT_BYTES = 65536;

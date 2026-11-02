@@ -1,9 +1,9 @@
 # Optional ongoing connected-profile sharing
 
-Version 0.5.0 is an unpublished review candidate. Profile sharing is off by
-default, `PROFILE_ENDPOINT` is empty, and no profile service/database/cron has
-been created. No identity collection can run until the reviewed fixed recipient
-is activated in a separately approved build. Published 0.4.0 is unchanged.
+Version 0.5.0 offers explicit ongoing profile sharing, off by default. The fixed
+recipient is `https://typefully-cli-profiles.dheeraj-personal-site.workers.dev`.
+No profile lookup or submission runs before informed consent. Version 0.4.0 has
+no profile-sharing feature. See [deployment verification](../profile-collector/DEPLOYMENT.md).
 
 ## One consent, every accessible account
 
@@ -155,8 +155,9 @@ No public read/roster endpoint exists. No exports are made by the implementation
 any later authorized export must honor the same removal/retention obligations.
 No application request, IP, user-agent, log/trace, Logpush or tail-consumer data is
 recorded. Hosting infrastructure still receives IP and connection metadata. This
-is identified profile data, not anonymous analytics. Provider backups may retain
-deleted data temporarily; do not promise instant backup erasure.
+is identified profile data, not anonymous analytics. On the owner's confirmed
+Workers Free plan, D1 recovery backups may retain removed data for up to seven
+days; removal does not instantly erase recovery backups.
 
 ## Revocation and deletion
 
@@ -185,9 +186,10 @@ the local receipt; failures retain it for explicit deletion retry while sync sta
 disabled. A new opt-in after removal generates a new capability. The source never
 automatically re-enables consent or silently sends a token to a new recipient.
 
-## Review and activation
+## Verification and operation
 
-All tests use synthetic fixtures and mocked transport/storage. No real profiles
-have been read or sent. The inactive template has no account, D1 binding, public
-route or cron. See [the exact proposed deployment/release plan](release-0.5.0.md)
-before approving backend resources, endpoint activation, publication or Homebrew.
+All tests use synthetic fixtures and mocked transport/storage. Release verification
+does not read or submit real profiles or send production acceptance requests.
+The example template remains inactive; the deployed service has a separate D1
+binding, disabled logging and daily cleanup. See [deployment and release details](release-0.5.0.md)
+and [verified production settings](../profile-collector/DEPLOYMENT.md).
