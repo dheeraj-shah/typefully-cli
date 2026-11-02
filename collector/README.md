@@ -13,8 +13,9 @@ CLI publication/release remains a separate approval.
 {"version":"0.3.0","category":"drafts"}
 ```
 
-Only reviewed release versions are accepted (`VERSIONS`: `0.3.0` and the prepared
-`0.4.0` candidate); add a version explicitly
+The deployed collector accepts `0.3.0` and `0.4.0`. This source candidate also
+allowlists exact `0.5.0`; that addition is not deployed and needs separate approval.
+Add a version explicitly
 when releasing. Categories: `account`, `drafts`, `publishing`, `media`, `tags`,
 `analytics`, `comments`, `queue`. Other keys/values and URLs with query strings are
 rejected. The application ignores all request headers except content type.

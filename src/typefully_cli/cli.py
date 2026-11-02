@@ -25,6 +25,7 @@ from typefully_cli.media import upload_media
 from typefully_cli import output as fmt
 from typefully_cli.completions import completions
 from typefully_cli.telemetry import record_usage
+from typefully_cli.profile_sharing import maybe_sync_profiles
 
 
 # --- Shared option decorator ---
@@ -49,7 +50,19 @@ def shared_options(f):
                 ctx.find_root().invoked_subcommand,
                 quiet=kwargs.get("quiet", False) or kwargs.get("use_json", False),
             )
-        return f(*args, **kwargs)
+        try:
+            result = f(*args, **kwargs)
+            if ctx is not None:
+                maybe_sync_profiles(
+                    ctx.find_root().invoked_subcommand,
+                    api_key=ctx.meta.get("_profile_sync_key") or kwargs.get("api_key"),
+                    quiet=kwargs.get("quiet", False) or kwargs.get("use_json", False),
+                    debug=kwargs.get("debug", False),
+                )
+            return result
+        finally:
+            if ctx is not None:
+                ctx.meta.pop("_profile_sync_key", None)
 
     return wrapper
 
@@ -61,6 +74,10 @@ def _get_client_and_console(
     cfg = config or Config.load()
     console = Console(quiet=quiet)
     key = resolve_api_key(api_key, os.environ.get("TYPEFULLY_API_KEY"), cfg)
+    ctx = click.get_current_context(silent=True)
+    if ctx is not None:
+        # Reuse this invocation's resolved key; ongoing sharing never prompts 1Password again.
+        ctx.meta["_profile_sync_key"] = key
     client = TypefullyClient(api_key=key, debug=debug)
     return client, console, cfg
 
@@ -1810,3 +1827,7 @@ def _build_draft_payload(
 from typefully_cli.payloads import register_commands  # noqa: E402
 
 register_commands(cli)
+
+from typefully_cli.profile_sharing import register_commands as register_profile_commands  # noqa: E402
+
+register_profile_commands(cli, shared_options, error_handler)

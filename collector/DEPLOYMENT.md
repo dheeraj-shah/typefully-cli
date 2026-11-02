@@ -52,3 +52,22 @@ enabled and previews disabled. A rejected synthetic POST returned 400 with zero
 response bytes; a subsequent D1 count confirmed zero rows. No accepted production
 payload was sent. No resources, paid plan
 changes, credentials, or grants were added by this update.
+
+## 0.5.0 activation — 2026-11-02
+
+The owner approved adding exact `0.5.0` to the existing finite version allowlist
+alongside `0.3.0` and `0.4.0`. Comparison with downloaded prior production source
+confirmed this is the only source change. Version
+`9bbc8295-364b-4d01-a547-3400794e940b` is deployed at 100%; downloaded source matches
+`worker.mjs` byte for byte. The existing `COUNTS` database binding, compatibility
+date and route are unchanged. Upload explicitly confirmed all observability,
+invocation/log/trace/persistence flags false, Logpush false and no tails. Settings
+and route readback confirmed the same binding, no Logpush/tails and no previews;
+account Logpush jobs remained empty.
+
+No production HTTP request or additional analytics event was sent for this
+activation. A read-only D1 query at 09:15 UTC returned exactly one count:
+`2026-11-02 / 0.4.0 / analytics / 1`. This is the previously authorized synthetic
+acceptance test sent once at 00:30:56 UTC on 2026-11-02. Exclude that one count from
+organic analysis; leave it intact. This activation's synthetic event count is zero.
+The separate opt-in profile service uses its own database and no command-count join.
