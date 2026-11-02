@@ -112,9 +112,11 @@ def test_unsafe_recipient_never_sends(setup, monkeypatch, recipient):
     factory.assert_not_called()
 
 
-def test_aborted_input_leaves_no_state_or_network(setup):
+def test_aborted_input_leaves_no_state_or_network(setup, monkeypatch):
     path, factory, _, _ = setup
-    assert invoke(text="").exit_code == 0
+    # Click 8.1's test runner returns empty strings forever at EOF; simulate its Abort directly.
+    monkeypatch.setattr(sharing.click, "prompt", MagicMock(side_effect=sharing.click.Abort))
+    assert invoke().exit_code == 0
     assert not path.exists()
     factory.assert_not_called()
 
