@@ -362,6 +362,38 @@ test('known-token deletion works even if the request-budget table is unavailable
   assert.equal(db.rows.get(hash(tokenA)).profiles_json, null);
 });
 
+test('a stalled request body is cancelled after five seconds without allocating a record', async () => {
+  const db = database();
+  let cancelled = false;
+  const stream = new ReadableStream({ cancel() { cancelled = true; } });
+  const req = request('/v1/register', {}, { body: stream, duplex: 'half' });
+  assert.equal((await worker.fetch(req, { PROFILES: db })).status, 408);
+  assert.equal(cancelled, true);
+  assert.equal(db.rows.size, 0);
+});
+
+test('a request crossing a budget window rechecks the new window and fails closed on storage error', async () => {
+  const db = database(), original = Date.now;
+  let clock = 1800000000000, budgets = 0;
+  Date.now = () => clock;
+  const prepare = db.prepare.bind(db);
+  db.prepare = sql => {
+    const statement = prepare(sql);
+    if (sql !== SQL.budget) return statement;
+    return { bind: (...values) => ({ run: async () => {
+      if (++budgets === 2) throw new Error('PRIVATE_BUDGET_ERROR');
+      const result = await statement.bind(...values).run();
+      clock += 60000;
+      return result;
+    } }) };
+  };
+  try {
+    assert.equal((await worker.fetch(registration(), { PROFILES: db })).status, 503);
+    assert.equal(budgets, 2);
+    assert.equal(db.rows.size, 0);
+  } finally { Date.now = original; }
+});
+
 test('review template has no account, bindings, route, cron, or application logging', async () => {
   const raw = await readFile(new URL('./wrangler.example.jsonc', import.meta.url), 'utf8');
   const config = JSON.parse(raw.replace(/\/\/.*$/gm, ''));

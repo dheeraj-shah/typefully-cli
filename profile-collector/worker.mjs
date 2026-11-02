@@ -56,11 +56,18 @@ function validProfiles(profiles) {
 async function payload(request, limit) {
   if (!request.body) throw new Error('invalid');
   const reader = request.body.getReader();
+  let timer;
+  const timeout = new Promise((_, reject) => {
+    timer = setTimeout(() => {
+      reject(new Error('body_timeout'));
+      reader.cancel().catch(() => {});
+    }, 5000);
+  });
   const chunks = [];
   let size = 0;
   try {
     while (true) {
-      const { done, value } = await reader.read();
+      const { done, value } = await Promise.race([reader.read(), timeout]);
       if (done) break;
       size += value.byteLength;
       if (size > limit) {
@@ -70,6 +77,7 @@ async function payload(request, limit) {
       chunks.push(value);
     }
   } finally {
+    clearTimeout(timer);
     reader.releaseLock();
   }
   const bytes = new Uint8Array(size);
@@ -95,7 +103,8 @@ export default {
     if (!['/v1/register', '/v1/sync', '/v1/withdraw'].includes(url.pathname) || url.search) return response(404);
     if (request.method !== 'POST') return response(405);
     if (request.headers.get('content-type') !== 'application/json') return response(415);
-    const now = Math.floor(Date.now() / 1000);
+    let now = Math.floor(Date.now() / 1000);
+    const requestMinute = Math.floor(now / 60);
     // Admission/sync floods spend a global atomic budget before potentially large bodies are read.
     // Withdrawal uses a tiny body first: known tokens bypass budgets; unknown tokens spend it later.
     if (url.pathname !== '/v1/withdraw') {
@@ -106,6 +115,12 @@ export default {
     let data;
     try {
       data = await payload(request, url.pathname === '/v1/sync' ? MAX_BYTES : 256);
+      now = Math.floor(Date.now() / 1000);
+      if (url.pathname !== '/v1/withdraw' && Math.floor(now / 60) !== requestMinute) {
+        try {
+          if (!await spendRequest(env.PROFILES, now)) return response(429);
+        } catch { return response(503); }
+      }
       const keys = Object.keys(data).sort().join(',');
       if (url.pathname === '/v1/sync') {
         if (keys !== 'consent_revision,profiles,snapshot_at,withdrawal_token' || data.consent_revision !== '3'
@@ -115,8 +130,8 @@ export default {
         if (keys !== 'consent_revision,requested_at,withdrawal_token' || data.consent_revision !== '3'
             || !Number.isSafeInteger(data.requested_at) || Math.abs(data.requested_at - now) > 300) throw new Error('invalid');
       } else if (keys !== 'withdrawal_token') throw new Error('invalid');
-    } catch {
-      return response(400);
+    } catch (error) {
+      return response(error?.message === 'body_timeout' ? 408 : 400);
     }
     try {
       const hash = await digest(data.withdrawal_token);
