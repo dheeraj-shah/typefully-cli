@@ -298,9 +298,9 @@ output_format = "text"   # or "json" for agent/script use
 
 ## Usage telemetry
 
-This unreleased branch counts CLI version and command category only through a
+Version 0.4.0 and later count CLI version and command category only through a
 maintainer-owned collector, after a visible notice. The first notice invocation
-sends nothing. Published 0.3.0 installations are unchanged until a new release.
+sends nothing. Version 0.3.0 installations are unchanged.
 Disable with `TYPEFULLY_TELEMETRY=0` or
 `typefully config set telemetry_enabled false`. See [privacy and activation details](docs/telemetry.md).
 
@@ -341,6 +341,23 @@ and settings you want to keep. `publish_at: "now"` really requests publication.
 `media-update MEDIA_ID --alt-text "New description"` or `--clear-alt-text` changes
 stored media; previously attached drafts keep their existing metadata snapshot.
 See [the full public capability matrix and remaining MCP boundaries](docs/upstream-parity.md).
+
+### Optional connected profiles (0.5.0)
+
+Profile sharing is off by default. `typefully community share-profiles` offers one
+explicit opt-in covering every account your API key can access, including
+team/client accounts and profiles linked later. It shares only documented public
+usernames/profile URLs for X, LinkedIn, Bluesky, Threads, Mastodon and Substack.
+Declining triggers no identity lookup or submission. You must have permission to
+share the managed/client profiles covered by that consent.
+
+After opt-in, a complete current snapshot syncs at most daily during eligible
+interactive CLI use. Each successful sync restarts a rolling 90-day expiry;
+active use can retain current profiles indefinitely. `community status` is local;
+`community withdraw-profiles` stops sync immediately and removes the remote
+profiles using the private local receipt. Anonymous usage counts remain separate.
+See [scope, data, ongoing sync, retention and removal](docs/profile-sharing.md)
+and the [0.5.0 activation/publication plan](docs/release-0.5.0.md).
 
 ### Agent skill
 

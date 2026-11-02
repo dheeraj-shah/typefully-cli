@@ -6,7 +6,7 @@ description: Use this repository's Python Typefully CLI to inspect accounts and 
 # Typefully CLI
 
 Run `typefully --help` and the selected command's `--help` before assuming flags.
-This skill describes the 0.4.0 release candidate; older installed
+This skill describes the unpublished 0.5.0 candidate; older installed
 packages may lack these commands or telemetry controls. Do not treat repository documentation as proof
 that the installed package has been upgraded.
 
@@ -27,6 +27,19 @@ persistently with `typefully config set telemetry_enabled false`. Only version
 and command category are sent, never post content, credentials or account IDs.
 The maintainer-owned host sees source IP; do not call this fully anonymous.
 See `docs/telemetry.md` for the recipient and retention details.
+
+## Optional connected profiles
+
+`community privacy` and `community status` are local/read-only. Profile sharing is
+off by default and inactive in this draft. `community share-profiles` requires a
+person's explicit interactive default-no consent covering all API-visible accounts,
+including managed/client profiles and profiles linked later; do not opt in during
+automation or assume permission for someone else. Once enabled, eligible interactive
+use syncs at most daily. `community withdraw-profiles` stops local sync immediately
+and deletes the remote snapshot using a private receipt, without Typefully auth.
+Rolling 90-day expiry restarts on each successful sync; active use can retain current
+profiles indefinitely. See `docs/profile-sharing.md`. This is independent of anonymous
+activity counting and its opt-outs. Never submit real profiles as a maintenance test.
 
 ## Prepare and validate
 
