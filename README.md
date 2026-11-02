@@ -344,6 +344,10 @@ See [the full public capability matrix and remaining MCP boundaries](docs/upstre
 
 ### Optional X handle sharing (unpublished review draft)
 
+This manual-entry proposal is superseded by a single opt-in for all supported
+connected profiles. See the [current design checkpoint](docs/connected-profile-sharing-checkpoint.md).
+Implementation is awaiting that scope review; the older inactive flow below is historical.
+
 An opt-in flow is being reviewed: `typefully community share-handle` asks you to
 enter your own X handle and separately confirm sharing it with Dheeraj Shah to
 understand who uses the CLI. `typefully community privacy` shows the proposed

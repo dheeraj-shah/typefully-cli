@@ -1,5 +1,9 @@
 # Optional X handle sharing — review draft
 
+**Superseded:** the owner now wants one opt-in for all supported connected
+profiles. This manual-entry design and its inactive code must not be activated.
+See the [API findings, revised scope and release checkpoint](connected-profile-sharing-checkpoint.md).
+
 This feature is **unpublished and inactive**. `HANDLE_ENDPOINT` is empty. No
 identity service, database, cron, credentials or public route has been created.
 Published PyPI/Homebrew 0.4.0 has no handle-sharing feature. The existing usage
