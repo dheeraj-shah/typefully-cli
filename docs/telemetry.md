@@ -4,9 +4,8 @@
 
 The maintainer-owned collector is deployed at
 `https://typefully-cli-telemetry.dheeraj-personal-site.workers.dev/v1/count`.
-This unreleased branch is configured to use it, subject to the notice and opt-out
-rules below. Existing published 0.3.0 installations are unchanged. A package
-release still requires separate approval. There is no third-party analytics SDK.
+Version 0.4.0 and later use it, subject to the notice and opt-out rules below.
+Version 0.3.0 installations are unchanged. There is no third-party analytics SDK.
 See [deployment verification](../collector/DEPLOYMENT.md).
 
 ## What an activated build measures

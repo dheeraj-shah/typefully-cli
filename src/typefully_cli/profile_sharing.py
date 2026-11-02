@@ -1,4 +1,4 @@
-"""Explicit ongoing sharing of public connected profiles; inactive pending approval."""
+"""Explicit ongoing sharing of public connected profiles after informed consent."""
 
 from __future__ import annotations
 
@@ -25,7 +25,7 @@ from typefully_cli.exceptions import TypefullyError
 from typefully_cli.telemetry import CI_VARIABLES, COMMAND_CATEGORIES
 
 # No service is activated by this draft. Bind the approved fixed recipient and disclosure together.
-PROFILE_ENDPOINT = ""
+PROFILE_ENDPOINT = "https://typefully-cli-profiles.dheeraj-personal-site.workers.dev"
 CONSENT_REVISION = "3"
 SYNC_INTERVAL = 86400
 RETENTION_DAYS = 90
@@ -375,7 +375,9 @@ def _disclosure() -> str:
         "No daemon. CI, scripts, JSON, quiet, debug, config and help/version do not sync.\n"
         "Consent continues until withdrawn. Each successful sync replaces the previous\n"
         "snapshot and resets its 90-day expiry; active use can retain current profiles\n"
-        "indefinitely. Expired data is removed at daily cleanup; backups may last longer.\n"
+        "indefinitely. Expired data is removed at daily cleanup; recovery backups may\n"
+        "retain deleted data for up to seven days. Provider quotas/outages can delay\n"
+        "remote deletion; local withdrawal still stops future sync.\n"
         "The host sees your network IP; application request logging stays disabled.\n"
         "Run: typefully community withdraw-profiles to stop sync locally immediately\n"
         "and delete the remote profiles. Keep your private profile-sharing.json receipt.\n"

@@ -1,9 +1,11 @@
-# 0.5.0 review and deployment plan
+# 0.5.0 deployment and release plan
 
-Prepared version: **0.5.0**. This branch is not a release authorization. PyPI
-currently has 0.4.0; do not replace that version, its files or its tag. The
-0.4.0-only Homebrew PR #2 is held: the next tap publication should contain the
-reviewed profile feature from a newly published 0.5.0 source distribution.
+Version: **0.5.0**. The owner approved the exact staged activation and
+PyPI/Homebrew publication on 2026-11-02, subject to final configuration, artifact
+and CI checks. Do not replace 0.4.0, its files or its tag. The held 0.4.0-only
+Homebrew update is superseded by the verified published 0.5.0 source distribution.
+See [profile deployment evidence](../profile-collector/DEPLOYMENT.md) and
+[aggregate collector evidence](../collector/DEPLOYMENT.md).
 
 ## Concrete behavior for review
 
@@ -21,9 +23,10 @@ data, and retains only a random token hash for 90 days to block delayed uploads.
 No posts/messages/emails/names/avatars/internal account IDs or API credentials are
 submitted. See [full data, scope, limits and removal](profile-sharing.md).
 
-## Exact production actions requiring approval
+## Approved production scope
 
-Nothing below has been performed. The profile endpoint remains empty.
+This scope authorizes the following resources and configuration only. It does
+not authorize real-profile queries/submissions or production acceptance events.
 
 1. In personal Cloudflare account `22980d1f74f2694e0642ea3cf9f384d9`, create one
    dedicated Worker **`typefully-cli-profiles`** and one dedicated D1 database
@@ -37,8 +40,9 @@ Nothing below has been performed. The profile endpoint remains empty.
 3. Add daily cleanup cron **`15 3 * * *` (03:15 UTC)**. Keep effective request,
    invocation, trace, persistence, Logpush and tail-consumer logging disabled.
    Review account-level exports and current D1 backups/plan before describing
-   retention. The plan must remain unchanged; no upgrade or quota increase is
-   authorized.
+   retention. The owner explicitly confirmed Workers Free; its documented D1
+   recovery window is seven days. The plan must remain unchanged; no upgrade or
+   quota increase is authorized.
 4. Review the implemented strict D1 ceilings: 30 guarded requests per UTC minute,
    2,000 per UTC day, 50 new records per UTC day, and 1,000 total records including
    pending/active/revoked. Each profile JSON is capped at 64 KiB (at most 62.5 MiB
@@ -46,8 +50,8 @@ Nothing below has been performed. The profile endpoint remains empty.
    reservations expire after one hour. All limits apply across Worker instances.
    Known-token deletion bypasses those quotas; unknown withdrawal allocates
    nothing and shares the request budget. No rate-limit binding, KV, Durable
-   Object, new credential or permission is required. Confirm these conservative
-   traffic/capacity thresholds before activation; changing them requires review
+   Object, new credential or permission is required. These conservative
+   traffic/capacity thresholds were approved by the owner. Changing them requires review
    of both source and schema. Exhaustion deliberately rejects admission/uploads
    rather than increasing capacity or billing. The service still does not prove
    ownership and attackers can consume shared admission or provider quotas.
@@ -56,7 +60,7 @@ Nothing below has been performed. The profile endpoint remains empty.
    on the activated candidate. No real-account lookup, real-profile submission
    or production acceptance request is authorized by this plan. Any such test
    needs explicit scope; use synthetic local/mocked verification by default.
-6. Separately approve the source-only anonymous collector change adding exact
+6. Deploy only the approved source-only anonymous collector change adding exact
    `0.5.0` to `VERSIONS`, preserving its payload, exclusions, opt-outs and logging
    settings. Do not send another production analytics test request. Readback of
    code/configuration through Cloudflare management APIs can verify deployment.
@@ -72,7 +76,9 @@ new service's current plan/settings:
 - Confirm current Workers/D1 plan, shared daily request/read/write allowances,
   remaining database/account storage, database slots and cron slots. Check other
   workloads sharing those allowances. The design uses only Workers + D1; no paid
-  add-on is necessary. Do not activate under an unverified Free-plan assumption.
+  add-on is necessary. The owner's explicit Free-plan confirmation is the plan
+  evidence when billing-subscription reads are unavailable to the existing OAuth
+  connection; do not expand its permissions to inspect billing.
   A Paid plan or insufficient remaining allowance requires a new cost/capacity
   decision; never upgrade or change grants automatically. Application request
   gates do not prevent incoming HTTP invocations from counting at Cloudflare.
@@ -87,7 +93,7 @@ new service's current plan/settings:
 - Verify actual D1 Time Travel/backup retention for the current plan and any
   operator exports. Current documented recovery windows are 7 days on Free and
   30 on Paid; confirm the applicable configuration before the disclosure is
-  approved. Removal/expiry does not imply instant erasure from backups. Keep the
+  finalized. Removal/expiry does not imply instant erasure from backups. Keep the
   daily cleanup's failure/status checks available without logging profiles.
 
 Sources checked while preparing this plan:
@@ -115,7 +121,7 @@ the client must stay locally revoked and keep its receipt for retry.
 - After separately approved activation, review the final exact source tree,
   built artifact hashes and CI on that activated tree before publication.
 
-## Publication order after final approval
+## Approved publication order
 
 1. Merge the exact tested final release source. Push exact tag **`v0.5.0`** at
    that commit, triggering the existing trusted PyPI publish workflow. Do not
@@ -127,7 +133,7 @@ the client must stay locally revoked and keep its receipt for retry.
    resource constraints/checksums, native strict audit/source installation,
    version/help/offline tests with identity/analytics traffic blocked, and the
    exact final tap PR head. No new formula is advertised before PyPI exists.
-4. With the separately reviewed tap publication approval, publish that formula
+4. Under the approved 0.5.0 tap publication scope, publish that formula
    and verify main readback/install. Do not first publish the held 0.4.0 update.
 
 The already completed anonymous acceptance test remains exactly one known
