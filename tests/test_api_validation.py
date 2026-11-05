@@ -14,6 +14,14 @@ from typefully_cli.exceptions import TypefullyError
 UUID = "550e8400-e29b-41d4-a716-446655440000"
 
 
+def runner():
+    # Click 8.1 (Python 3.9) combines streams by default; 8.2 removed this option.
+    try:
+        return CliRunner(mix_stderr=False)
+    except TypeError:
+        return CliRunner()
+
+
 @pytest.mark.parametrize(
     "args",
     [
@@ -42,7 +50,7 @@ UUID = "550e8400-e29b-41d4-a716-446655440000"
 )
 def test_invalid_commands_fail_before_auth(args):
     with patch("typefully_cli.cli._get_client_and_console") as get_client:
-        result = CliRunner().invoke(cli, args)
+        result = runner().invoke(cli, args)
     assert result.exit_code == 1, result.output
     assert not result.stdout
     assert json.loads(result.stderr)["error"]["code"] == "invalid_input"
@@ -59,6 +67,15 @@ def test_invalid_commands_fail_before_auth(args):
         ("anchor", "Hi", "10001", "x"),
         ("anchor", "Hi", "-1", "x"),
         ("anchor", "Hi", "0", "other"),
+    ],
+    ids=[
+        "empty-anchor",
+        "long-anchor",
+        "empty-body",
+        "long-body",
+        "large-occurrence",
+        "negative-occurrence",
+        "unknown-platform",
     ],
 )
 def test_comment_create_boundaries(selected, text, occurrence, platform):
@@ -78,7 +95,7 @@ def test_comment_create_boundaries(selected, text, occurrence, platform):
         platform,
     ]
     with patch("typefully_cli.cli._get_client_and_console") as get_client:
-        result = CliRunner().invoke(cli, args)
+        result = runner().invoke(cli, args)
     assert result.exit_code == 1
     assert json.loads(result.stderr)["error"]["code"] == "invalid_input"
     get_client.assert_not_called()
@@ -107,7 +124,7 @@ def test_comment_create_boundaries(selected, text, occurrence, platform):
 )
 def test_invalid_queue_rules_before_auth(rules):
     with patch("typefully_cli.cli._get_client_and_console") as get_client:
-        result = CliRunner().invoke(cli, ["queue-schedule", "set", "--rules", json.dumps(rules)])
+        result = runner().invoke(cli, ["queue-schedule", "set", "--rules", json.dumps(rules)])
     assert result.exit_code == 1
     assert json.loads(result.stderr)["error"]["code"] == "invalid_input"
     get_client.assert_not_called()
@@ -141,7 +158,7 @@ def test_valid_boundary_inputs_preserve_transport(args, method, expected):
     with patch(
         "typefully_cli.cli._get_client_and_console", return_value=(client, MagicMock(), MagicMock())
     ):
-        result = CliRunner().invoke(cli, args)
+        result = runner().invoke(cli, args)
     assert result.exit_code == 0, result.output
     getattr(client, method).assert_called_once_with(*expected)
 
@@ -179,7 +196,7 @@ def test_comment_create_valid_maxima_and_output_option_do_not_collide(platform, 
     with patch(
         "typefully_cli.cli._get_client_and_console", return_value=(client, MagicMock(), MagicMock())
     ):
-        result = CliRunner().invoke(cli, args)
+        result = runner().invoke(cli, args)
     assert result.exit_code == 0, result.output
     body = client.create_comment_thread.call_args.args[2]
     assert body["text"] == "c" * 10000
@@ -190,7 +207,7 @@ def test_comment_create_valid_maxima_and_output_option_do_not_collide(platform, 
 
 @pytest.mark.parametrize("command", ["create", "reply", "update"])
 def test_comment_help_has_unique_body_and_human_options(command):
-    result = CliRunner().invoke(cli, ["comments", command, "--help"])
+    result = runner().invoke(cli, ["comments", command, "--help"])
     assert result.exit_code == 0
     assert "--human" in result.output
     assert result.output.count("--text") == 1
@@ -205,7 +222,7 @@ def test_valid_queue_dates_preserve_response_envelope():
     with patch(
         "typefully_cli.cli._get_client_and_console", return_value=(client, MagicMock(), MagicMock())
     ):
-        result = CliRunner().invoke(
+        result = runner().invoke(
             cli, ["queue", "--start-date", "2026-11-05", "--end-date", "2026-11-05", "--json"]
         )
     assert result.exit_code == 0
