@@ -175,3 +175,56 @@ def test_schema_reordering_is_ignored_but_operations_and_deprecations_are_not():
 def test_conflicting_specs_are_degraded():
     with pytest.raises(ValueError, match="conflicting"):
         monitor.extract_openapi(api_page(api_spec()) + api_page(api_spec(33)))
+
+
+def test_flight_description_ids_do_not_change_contract_but_visible_prose_does(tmp_path):
+    sources = {
+        "api-docs": ("https://example.invalid", "html", "Typefully"),
+        "api-schema": ("https://example.invalid", "openapi", "Typefully"),
+    }
+
+    def document(reference, prose="current description"):
+        spec = api_spec()
+        spec["info"]["description"] = reference
+        spec["tags"] = [{"name": "Drafts", "description": reference}]
+        spec["paths"]["/v2/me"]["get"]["description"] = reference
+        return api_page(spec, "flight") + "<p>" + prose + "</p>"
+
+    monitor.collect(tmp_path, lambda _: document("$46"), sources)
+    monitor.commit(tmp_path)
+    assert monitor.collect(tmp_path, lambda _: document("$a7"), sources)["status"] == "ok"
+    result = monitor.collect(tmp_path, lambda _: document("$a7", "new description"), sources)
+    assert result["changed"] == ["api-docs"]
+
+
+def test_field_literally_named_description_is_not_normalized_away():
+    first = api_spec()
+    first["components"]["schemas"]["Tag"]["properties"]["description"] = {
+        "type": "string",
+        "maxLength": 4,
+    }
+    before = monitor.normalize(api_page(first, "flight"), "openapi", "Typefully")
+    assert '"description":{"maxLength":4,"type":"string"}' in before
+    first["components"]["schemas"]["Tag"]["properties"]["description"]["maxLength"] = 5
+    assert before != monitor.normalize(api_page(first, "flight"), "openapi", "Typefully")
+
+
+@pytest.mark.parametrize("location", ["type", "$ref", "required", "named-description"])
+def test_unresolved_semantic_flight_references_preserve_baseline(tmp_path, location):
+    sources = {"api-schema": ("https://example.invalid", "openapi", "Typefully")}
+    monitor.collect(tmp_path, lambda _: api_page(api_spec(), "flight"), sources)
+    monitor.commit(tmp_path)
+    old = (tmp_path / "baseline-v2.json").read_text()
+    spec = api_spec()
+    tag = spec["components"]["schemas"]["Tag"]
+    if location == "required":
+        tag["required"] = ["$46"]
+    elif location == "named-description":
+        tag["properties"]["description"] = "$46"
+    else:
+        tag["properties"]["name"][location] = "$46"
+    result = monitor.collect(tmp_path, lambda _: api_page(spec, "flight"), sources)
+    assert result["status"] == "degraded"
+    assert result["failed"] == [{"source": "api-schema", "error": "ValueError"}]
+    monitor.commit(tmp_path)
+    assert (tmp_path / "baseline-v2.json").read_text() == old

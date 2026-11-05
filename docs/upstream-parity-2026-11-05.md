@@ -131,11 +131,22 @@ conflicting schemas cause degraded monitoring and preserve the last good digest.
 Both API views share one fetch. Transactional report-before-baseline behavior,
 issue deduplication and failure reporting remain covered by offline tests.
 
+An independent allowed cloud-browser check read the real inline DOM script
+containing `openapi` (194,050 characters) and exercised `extract_openapi`: all 16
+paths extracted, and components exactly matched the downloaded public document.
+Seven long descriptions were represented by Next flight `$hex` references. Those
+transport-only description placeholders are now normalized so unrelated build IDs
+do not change the contract digest; the separate visible-docs digest monitors their
+prose. Fields literally named `description` remain intact. Unresolved references
+in semantic schema values fail visibly and retain the last good baseline.
+
 The new schema entry initializes on its first successful read without discarding
 existing baselines. Tests cover direct JSON, escaped JSON, split flight chunks,
-schema-only changes, ordering/nonces/examples, missing schemas and retained state.
-The embedding parser could not be exercised on current raw HTML in this cloud
-environment; extraction failure will be visible rather than called unchanged.
+schema-only changes, ordering/nonces/examples, description reference-ID churn,
+visible prose changes, named description fields, unresolved semantic references,
+missing schemas and retained state. The live check used a browser DOM script,
+not server raw-HTTP HTML; direct shell access remains blocked. Extraction failure
+will be visible rather than called unchanged.
 Monday/Thursday cron, workflow permissions, weekly Actions Dependabot and tag-only
 publishing triggers are unchanged. No scheduled workflow was dispatched here.
 
@@ -144,7 +155,7 @@ account settings, authenticated Typefully calls or collector submissions were us
 The historical one-off live draft smoke test was separately authorized and was not
 repeated. Merge, release, publishing and deployment require separate authorization.
 
-Local validation: 448 Python tests, exact CI Ruff selection, Python 3.9 syntax
+Local validation: 454 Python tests, exact CI Ruff selection, Python 3.9 syntax
 parsing/compilation, whitespace checks, 28 Node collector tests and wheel schema/module
 inclusion checks passed. Remote CI must be assessed for the final PR head; local
 Python 3.12 results alone are not a five-version CI claim.

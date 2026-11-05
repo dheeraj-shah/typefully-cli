@@ -141,10 +141,27 @@ def extract_openapi(raw):
 
 
 def schema_contract(value, named=False):
-    """Ignore generated examples, preserving fields literally named 'example'."""
+    """Remove transport noise without discarding named fields or schema rules.
+
+    Next flight can substitute long description text with build-specific $hex
+    references. The separate visible-docs digest monitors that prose. Only these
+    description metadata placeholders are normalized; unresolved references in
+    semantic values must fail rather than hide an unknown schema contract.
+    """
     if isinstance(value, dict):
-        return {
-            key: schema_contract(
+        result = {}
+        for key, child in value.items():
+            if not named and key in ("example", "examples"):
+                continue
+            if (
+                not named
+                and key == "description"
+                and isinstance(child, str)
+                and re.fullmatch(r"\$[0-9a-fA-F]+", child)
+            ):
+                result[key] = "[Next flight description; see visible API docs]"
+                continue
+            result[key] = schema_contract(
                 child,
                 key
                 in (
@@ -160,11 +177,11 @@ def schema_contract(value, named=False):
                     "patternProperties",
                 ),
             )
-            for key, child in value.items()
-            if named or key not in ("example", "examples")
-        }
+        return result
     if isinstance(value, list):
         return [schema_contract(child) for child in value]
+    if isinstance(value, str) and re.fullmatch(r"\$(?:[0-9a-fA-F]+|[L@][0-9a-fA-F]+)", value):
+        raise ValueError("unresolved Next flight reference in schema contract")
     return value
 
 
