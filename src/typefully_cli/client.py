@@ -8,6 +8,7 @@ import time
 import httpx
 
 from typefully_cli.exceptions import AccountError, APIError
+from typefully_cli.validation import validate_length
 
 
 class TypefullyClient:
@@ -191,6 +192,7 @@ class TypefullyClient:
         )
 
     def create_tag(self, social_set_id: int, name: str) -> dict:
+        validate_length(name, 1, 32, "Tag name")
         return (
             self._request("POST", f"/social-sets/{social_set_id}/tags", json={"name": name}) or {}
         )
@@ -199,6 +201,8 @@ class TypefullyClient:
         """Create any tags that don't exist yet. Returns list of warnings."""
         if not tag_names:
             return []
+        for name in tag_names:
+            validate_length(name, 1, 32, "Tag name")
         warnings: list[str] = []
         existing_names: set[str] = set()
         offset = 0
