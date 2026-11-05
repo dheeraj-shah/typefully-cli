@@ -13,6 +13,7 @@ from urllib.request import Request, urlopen
 # Public documentation is deliberately not presented as an authenticated MCP inventory.
 SOURCES = {
     "api-docs": ("https://typefully.com/docs/api", "html", "Typefully"),
+    "api-schema": ("https://typefully.com/docs/api", "openapi", "Typefully"),
     "agent-skills": (
         "https://raw.githubusercontent.com/typefully/agent-skills/main/skills/typefully/scripts/typefully.js",
         "text",
@@ -47,6 +48,143 @@ class VisibleText(HTMLParser):
             self.parts.append(data)
 
 
+class Scripts(HTMLParser):
+    def __init__(self):
+        super().__init__()
+        self.parts = []
+        self.current = None
+
+    def handle_starttag(self, tag, attrs):
+        if tag == "script":
+            self.current = []
+
+    def handle_endtag(self, tag):
+        if tag == "script" and self.current is not None:
+            self.parts.append("".join(self.current))
+            self.current = None
+
+    def handle_data(self, data):
+        if self.current is not None:
+            self.current.append(data)
+
+
+def json_fragments(text):
+    """Read JSON literals embedded in JavaScript without evaluating any code."""
+    decoder = json.JSONDecoder()
+    position = 0
+    while position < len(text):
+        match = re.search(r'[\[{"]', text[position:])
+        if match is None:
+            break
+        position += match.start()
+        try:
+            value, end = decoder.raw_decode(text, position)
+        except ValueError:
+            position += 1
+        else:
+            yield value
+            position = end
+
+
+def extract_openapi(raw):
+    """Extract a direct JSON spec or an escaped Next.js flight payload.
+
+    A changed/missing embedding fails visibly instead of silently reverting to
+    visible text, which cannot observe schema-only changes.
+    """
+    parser = Scripts()
+    parser.feed(raw)
+    specs, flight = [], []
+
+    def visit(value, depth=0):
+        if depth > 100:
+            raise ValueError("embedded schema exceeds nesting limit")
+        if isinstance(value, dict):
+            if "openapi" in value:
+                if (
+                    not isinstance(value["openapi"], str)
+                    or not value["openapi"].startswith("3.")
+                    or not isinstance(value.get("paths"), dict)
+                    or not value["paths"]
+                    or not isinstance(value.get("components", {}).get("schemas"), dict)
+                    or "Typefully" not in value.get("info", {}).get("title", "")
+                ):
+                    raise ValueError("unexpected embedded OpenAPI document")
+                specs.append(value)
+            else:
+                for child in value.values():
+                    visit(child, depth + 1)
+        elif isinstance(value, list):
+            for child in value:
+                visit(child, depth + 1)
+        elif isinstance(value, str) and '"openapi"' in value:
+            for child in json_fragments(value):
+                if child != value:
+                    visit(child, depth + 1)
+
+    for script in parser.parts:
+        for value in json_fragments(script):
+            # Next flight chunks can divide one JSON document across scripts.
+            if isinstance(value, list) and len(value) == 2 and value[0] == 1:
+                if isinstance(value[1], str):
+                    flight.append(value[1])
+            visit(value)
+    if flight:
+        for value in json_fragments("".join(flight)):
+            visit(value)
+    if not specs:
+        raise ValueError("embedded OpenAPI document missing or unrecognized")
+    unique = {json.dumps(spec, sort_keys=True) for spec in specs}
+    if len(unique) != 1:
+        raise ValueError("conflicting embedded OpenAPI documents")
+    return specs[0]
+
+
+def schema_contract(value, named=False):
+    """Remove transport noise without discarding named fields or schema rules.
+
+    Next flight can substitute long description text with build-specific $hex
+    references. The separate visible-docs digest monitors that prose. Only these
+    description metadata placeholders are normalized; unresolved references in
+    semantic values must fail rather than hide an unknown schema contract.
+    """
+    if isinstance(value, dict):
+        result = {}
+        for key, child in value.items():
+            if not named and key in ("example", "examples"):
+                continue
+            if (
+                not named
+                and key == "description"
+                and isinstance(child, str)
+                and re.fullmatch(r"\$[0-9a-fA-F]+", child)
+            ):
+                result[key] = "[Next flight description; see visible API docs]"
+                continue
+            result[key] = schema_contract(
+                child,
+                key
+                in (
+                    "properties",
+                    "schemas",
+                    "paths",
+                    "responses",
+                    "headers",
+                    "webhooks",
+                    "securitySchemes",
+                    "content",
+                    "$defs",
+                    "patternProperties",
+                ),
+            )
+        return result
+    if isinstance(value, list):
+        return [schema_contract(child) for child in value]
+    if isinstance(value, str) and re.fullmatch(r"\$(?:[0-9a-fA-F]+|[L@][0-9a-fA-F]+)", value):
+        raise ValueError("unresolved Next flight reference in schema contract")
+    return value
+
+
 def fetch(url):
     request = Request(url, headers={"User-Agent": "typefully-cli-upstream-monitor/1"})
     with urlopen(request, timeout=45) as response:
@@ -57,6 +195,10 @@ def fetch(url):
 
 
 def normalize(raw, kind, marker):
+    if kind == "openapi":
+        return json.dumps(
+            schema_contract(extract_openapi(raw)), sort_keys=True, separators=(",", ":")
+        )
     if kind == "html":
         if "<html" not in raw.lower():
             raise ValueError("expected an HTML documentation page")
@@ -75,9 +217,17 @@ def collect(cache, fetcher=fetch, sources=SOURCES):
     baseline = json.loads(baseline_file.read_text()) if baseline_file.exists() else {}
     pending = dict(baseline)
     changes, failures, initialized = [], [], []
+    fetched = {}
     for name, (url, kind, marker) in sources.items():
         try:
-            content = normalize(fetcher(url), kind, marker)
+            if url not in fetched:
+                try:
+                    fetched[url] = fetcher(url)
+                except (OSError, ValueError) as error:
+                    fetched[url] = error
+            if isinstance(fetched[url], Exception):
+                raise fetched[url]
+            content = normalize(fetched[url], kind, marker)
             digest = hashlib.sha256(content.encode()).hexdigest()
             previous = baseline.get(name)
             pending[name] = {"url": url, "sha256": digest}
@@ -85,7 +235,7 @@ def collect(cache, fetcher=fetch, sources=SOURCES):
                 initialized.append(name)
             elif previous != pending[name]:
                 changes.append(name)
-        except (OSError, ValueError) as error:
+        except (OSError, ValueError, RecursionError, TypeError, AttributeError) as error:
             # Retain the last valid baseline and never call a failed fetch "unchanged".
             failures.append({"source": name, "error": type(error).__name__})
     result = {

@@ -49,12 +49,19 @@ def print_account_detail(data: dict) -> None:
             profile = info.get("profile_url", "")
             _console.print(f"    \\[{_esc(name.upper())}] @{_esc(username)}")
             if profile:
-                _console.print(f"      {profile}")
+                _console.print(f"      {_esc(profile)}")
+    quota = data.get("publishing_quota")
+    if isinstance(quota, dict):
+        for key in ("used", "remaining", "resets_at"):
+            if key in quota:
+                _console.print(f"  Publishing quota {key}: {_esc(str(quota[key]))}")
 
 
 def print_draft(data: dict) -> None:
     _console.print(f"  ID:     {data.get('id', '?')}")
     _console.print(f"  Status: {data.get('status', '?')}")
+    if data.get("publish_state"):
+        _console.print(f"  Publish state: {_esc(str(data['publish_state']))}")
     for key in ("created_at", "updated_at", "draft_title", "scheduled_date", "published_at"):
         val = data.get(key, "")
         if val:
@@ -67,17 +74,25 @@ def print_draft(data: dict) -> None:
             for t in tags
         )
         _console.print(f"  Tags: {_esc(tag_str)}")
-    for url_key in ("share_url", "private_url", "x_published_url", "linkedin_published_url"):
+    for url_key in ("share_url", "private_url", "x_published_url", "linkedin_published_url",
+                    "mastodon_published_url", "threads_published_url", "bluesky_published_url",
+                    "substack_published_url", "x_article_published_url"):
         val = data.get(url_key, "")
         if val:
             label = url_key.replace("_", " ").title()
-            _console.print(f"  {label}: {val}")
+            _console.print(f"  {label}: {_esc(str(val))}")
     scratchpad = data.get("scratchpad_text", "")
     if scratchpad:
         _console.print(f"  Scratchpad: {_esc(scratchpad)}")
     # Posts per platform
     for platform, pdata in data.get("platforms", {}).items():
-        if not isinstance(pdata, dict) or not pdata.get("enabled"):
+        if not isinstance(pdata, dict):
+            continue
+        if platform == "x_article":
+            _console.print("\n  \\[X_ARTICLE]")
+            _console.print(f"    {_esc(pdata.get('content_markdown') or '(no content)')}")
+            continue
+        if not pdata.get("enabled"):
             continue
         posts = pdata.get("posts", [])
         _console.print(f"\n  \\[{_esc(platform.upper())}] ({len(posts)} post{'s' if len(posts) != 1 else ''})")
@@ -90,12 +105,16 @@ def print_draft(data: dict) -> None:
 def print_draft_short(data: dict) -> None:
     _console.print(f"  ID:     {data.get('id', '?')}")
     _console.print(f"  Status: {data.get('status', '?')}")
+    if data.get("publish_state"):
+        _console.print(f"  Publish state: {_esc(str(data['publish_state']))}")
+    if data.get("publish_state") == "in_progress":
+        _console.print("  Publishing is asynchronous; use get to check completion and published URLs.")
     share_url = data.get("share_url", "")
     if share_url:
-        _console.print(f"  Share:  {share_url}")
+        _console.print(f"  Share:  {_esc(share_url)}")
     private_url = data.get("private_url", "")
     if private_url:
-        _console.print(f"  Edit:   {private_url}")
+        _console.print(f"  Edit:   {_esc(private_url)}")
 
 
 def print_drafts_list(data: dict) -> None:
@@ -132,7 +151,7 @@ def print_recent(posts: list[dict]) -> None:
         _console.print("  (none)")
         return
     for d in posts:
-        pub = d.get("published_at", "?")[:10]
+        pub = (d.get("published_at") or "?")[:10]
         draft_id = d.get("id", "?")
         text = ""
         platforms = d.get("platforms", {})
@@ -141,12 +160,19 @@ def print_recent(posts: list[dict]) -> None:
             if pp:
                 text = "\n  ---\n".join(p.get("text", "") for p in pp)
         if not text:
+            article = d.get("platforms", {}).get("x_article") or {}
+            text = article.get("content_markdown") or ""
+        if not text:
             text = d.get("preview", "(no text)")
         x_url = d.get("x_published_url", "")
         _console.print(f"--- \\[{_esc(pub)}] (ID: {draft_id}) ---")
         _console.print(f"  {_esc(text)}")
         if x_url:
-            _console.print(f"  -> {x_url}")
+            _console.print(f"  -> {_esc(x_url)}")
+        for platform in ("linkedin", "mastodon", "threads", "bluesky", "substack", "x_article"):
+            url = d.get(f"{platform}_published_url")
+            if url:
+                _console.print(f"  -> {_esc(platform)}: {_esc(url)}")
         _console.print()
 
 
@@ -218,22 +244,32 @@ def print_analytics(data: dict) -> None:
 
 
 def print_queue(data: dict) -> None:
-    slots = data.get("slots", data.get("results", []))
+    if "days" in data:
+        slots = [item for day in data["days"] for item in day.get("items", [])]
+    else:
+        slots = data.get("slots", data.get("results", []))
     if not slots:
         _console.print("  (empty queue)")
         return
     for slot in slots:
-        time_str = slot.get("time", slot.get("scheduled_date", "?"))
+        time_str = slot.get("at", slot.get("time", slot.get("scheduled_date", "?")))
         draft = slot.get("draft")
         if draft:
             draft_id = draft.get("id", "?")
             preview = draft.get("preview", "")[:60]
-            _console.print(f"  [{_esc(str(time_str)[:16])}] {_esc(preview)} (ID: {draft_id})")
+            status = draft.get("status", "?")
+            suffix = " (inert; awaiting confirmation)" if status == "planned" else ""
+            _console.print(
+                f"  \\[{_esc(str(time_str)[:16])}] {_esc(str(status))}{suffix}: "
+                f"{_esc(preview)} (ID: {_esc(str(draft_id))})"
+            )
         else:
-            _console.print(f"  [{_esc(str(time_str)[:16])}] (empty slot)")
+            _console.print(f"  \\[{_esc(str(time_str)[:16])}] (empty slot)")
 
 
 def print_queue_schedule(data: dict) -> None:
+    if data.get("timezone"):
+        _console.print(f"  Timezone: {_esc(str(data['timezone']))}")
     rules = data.get("rules", [])
     if not rules:
         _console.print("  (no schedule rules)")
@@ -259,6 +295,11 @@ def print_linkedin_resolve(data: dict) -> None:
 def print_media_status(data: dict) -> None:
     _console.print(f"  Media ID: {data.get('media_id', data.get('id', '?'))}")
     _console.print(f"  Status:   {data.get('status', '?')}")
-    url = data.get("url", "")
+    if data.get("error_reason"):
+        _console.print(f"  Error:    {_esc(str(data['error_reason']))}")
+    if data.get("alt_text") is not None:
+        _console.print(f"  Alt text: {_esc(str(data['alt_text']))}")
+    urls = data.get("media_urls") or {}
+    url = data.get("url") or urls.get("original", "")
     if url:
-        _console.print(f"  URL:      {url}")
+        _console.print(f"  URL:      {_esc(str(url))}")

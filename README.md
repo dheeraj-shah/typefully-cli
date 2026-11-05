@@ -50,7 +50,7 @@ typefully analytics --start-date 2026-01-01
 typefully followers --start-date 2026-01-01
 
 # View your posting queue
-typefully queue
+typefully queue --start-date 2026-11-05 --end-date 2026-11-12
 
 # Shell completions
 typefully completions install
@@ -131,6 +131,7 @@ typefully config set output_format json
 | `invalid_input` | Bad date format, limit out of range, single-post thread |
 | `batch_parse_error` | Malformed batch file |
 | `media_upload_error` | Upload failed or unsupported format |
+| `media_processing_timeout` | Upload succeeded but processing did not finish before `--timeout`; poll the media ID in the hint |
 
 ### Partial failure (batch/delete)
 
@@ -197,7 +198,7 @@ All account-scoped commands accept `--api-key`, `--account`, `--json`, `--quiet`
 | `open ID` | Open a draft in the browser |
 | `update ID ["text"]` | Edit a draft (use `===` to separate thread posts) |
 | `delete ID [ID ...]` | Delete one or more drafts |
-| `publish ID` | Publish a draft immediately |
+| `publish ID` | Start immediate publication; poll `get ID` until `publish_state` is `finished` |
 | `schedule ID` | Schedule a draft (`--time ISO\|next`, default: next) |
 | `plan ID --time ISO\|next` | Place draft on calendar without scheduling publication |
 | `comments list\|create\|reply\|resolve\|update\|delete` | Manage draft review comments |
@@ -213,7 +214,7 @@ All account-scoped commands accept `--api-key`, `--account`, `--json`, `--quiet`
 | `recent` | Published posts (`-n`, `--since`, `--until`, `--format csv`) |
 | `analytics` | Post analytics (`--platform`, `--start-date`, `--end-date`, `--include-replies`) |
 | `followers` | Follower analytics (`--platform`, `--start-date`, `--end-date`) |
-| `queue` | View posting queue (`--start-date`, `--end-date`) |
+| `queue` | View posting queue (requires `--start-date` and `--end-date`) |
 | `queue-schedule get\|set` | Get or set posting times (`--rules` for set) |
 
 </details>
@@ -341,6 +342,32 @@ and settings you want to keep. `publish_at: "now"` really requests publication.
 `media-update MEDIA_ID --alt-text "New description"` or `--clear-alt-text` changes
 stored media; previously attached drafts keep their existing metadata snapshot.
 See [the full public capability matrix and remaining MCP boundaries](docs/upstream-parity.md).
+
+### Publication progress, queue and review comments
+
+Immediate publication is asynchronous: `publish ID` or `--schedule now` can return
+`status: draft`, `publish_state: in_progress` and null publication URLs. The request
+was accepted; use `get ID` until `publish_state` is `finished`, then inspect the
+status and platform URLs. Human output displays this progress; JSON keeps the
+upstream fields. Planned drafts never auto-publish until explicitly confirmed.
+
+`queue` requires both `--start-date YYYY-MM-DD` and `--end-date YYYY-MM-DD` in the
+account timezone. Human output includes free slots, scheduled drafts and inert
+planned drafts. `queue-schedule set --rules` replaces the entire schedule; `[]`
+clears it. Hours are 0..23, minutes 0..59, days mon..sun, with no duplicate day/time
+pairs. Even `queue-schedule get` can initialize missing server defaults.
+
+Review comments use `comments create ID --post-index 0 --selected-text "substring"
+--text "Review body"`, or `--platform x_article` without a post index for articles.
+`--text` is the comment body on create/reply/update; use `--human` for their human
+output override and `--json` for structured output. Comment bodies are 1..10000
+characters, selected text 1..50000, and occurrence 0..10000. Thread/comment/media
+IDs must be UUIDs. `tag-create` accepts names of 1..32 characters.
+
+Uploads stop immediately on terminal processing failure and include the server's
+reason. A processing timeout reports `media_processing_timeout` with the media ID
+and polling command; it does not imply the upload failed. `media-status --text`
+shows current error, alt text and original media URL when supplied by the API.
 
 ### Optional connected profiles (0.5.0)
 
