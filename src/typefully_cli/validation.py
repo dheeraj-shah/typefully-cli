@@ -70,3 +70,36 @@ def validate_queue_rules(rules):
             if slot in seen:
                 invalid("Duplicate queue day and time")
             seen.add(slot)
+
+def validate_article_options(options):
+    """Reject supplied post-only options instead of silently dropping them."""
+    value_options = {
+        "text": "text", "input_file": "--file", "media": "--media",
+        "reply_to": "--reply-to", "community": "--community",
+        "qrt": "--quote-post-url", "quote_post_url": "--quote-post-url",
+        "reply_settings": "--reply-settings", "subscribers_only": "--subscribers-only",
+        "share_with_followers": "--share-with-followers",
+        "linkedin_first_comment": "--linkedin-first-comment",
+        "linkedin_reshare_target": "--linkedin-reshare-target",
+    }
+    flag_options = {
+        "append_posts": "--append", "paid_partnership": "--paid-partnership",
+        "made_with_ai": "--made-with-ai", "hide_link_preview": "--hide-link-preview",
+        "threadify": "--threadify", "all_platforms": "--all",
+        "linkedin": "--linkedin", "threads": "--threads", "bluesky": "--bluesky",
+        "mastodon": "--mastodon", "substack": "--substack",
+    }
+    supplied = [label for name, label in value_options.items() if options.get(name) is not None]
+    supplied += [label for name, label in flag_options.items() if options.get(name)]
+    if options.get("posts_text") or options.get("posts"):
+        supplied.append("text")
+    if supplied:
+        invalid("X Articles do not accept post-only options: " + ", ".join(dict.fromkeys(supplied)))
+
+
+def validate_article_input(platform, content_markdown, cover_media_id, options):
+    targets = {value.strip().lower() for value in (platform or "").split(",")}
+    if "x_article" in targets and len(targets - {""}) > 1:
+        invalid("X Articles must be a standalone platform")
+    if content_markdown is not None or cover_media_id is not None or "x_article" in targets:
+        validate_article_options(options)

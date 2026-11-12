@@ -29,6 +29,7 @@ from typefully_cli.telemetry import record_usage
 from typefully_cli.profile_sharing import maybe_sync_profiles
 from typefully_cli.validation import (
     COMMENT_PLATFORMS, DRAFT_ORDERS, DRAFT_STATUSES,
+    validate_article_input, validate_article_options,
     validate_choice, validate_length, validate_queue_dates, validate_queue_rules, validate_uuid,
 )
 
@@ -632,7 +633,7 @@ def recent(limit, since, until_date, output_format, api_key, account, use_text, 
               help="Read post content from a file")
 @click.option("--schedule", default=None, help="ISO datetime, 'next', or 'now'")
 @click.option("--plan", default=None, help="ISO datetime or 'next'; calendar only, does not publish")
-@click.option("--tag", "tags", multiple=True, help="Tag name (repeatable, auto-created)")
+@click.option("--tag", "tags", multiple=True, help="Tag name or existing slug (repeatable; names auto-created)")
 @click.option("--title", default=None)
 @click.option("--media", default=None, help="Comma-separated media IDs")
 @click.option("--share/--no-share", default=False)
@@ -670,7 +671,8 @@ def draft(
     linkedin_first_comment, linkedin_reshare_target,
     api_key, account, use_text, use_json, quiet, debug,
 ):
-    """Create a draft post."""
+    """Create a draft post. X Articles reject post-only options."""
+    validate_article_input(platform, content_markdown, cover_media_id, locals())
     platform_fields = dict(
         reply_settings=reply_settings, subscribers_only=subscribers_only,
         share_with_followers=share_with_followers,
@@ -702,13 +704,11 @@ def draft(
             mastodon=mastodon, substack=substack, all_platforms=all_platforms,
         )
 
-        # Tag auto-creation
-        if tags:
-            for w in client.ensure_tags(ssid, list(tags)):
-                console.warning(w)
+        tag_map = client.resolve_tag_slugs(ssid, list(tags)) if tags else {}
 
         payload = _build_draft_payload(
-            posts_text=[text] if text else [], schedule=schedule, plan=plan, tags=list(tags),
+            posts_text=[text] if text else [], schedule=schedule, plan=plan,
+            tags=list(dict.fromkeys(tag_map.values())),
             title=title, media=media, share=share, reply_to=reply_to,
             scratchpad=scratchpad, threadify=threadify,
             auto_retweet=auto_retweet, auto_plug=auto_plug,
@@ -729,7 +729,7 @@ def draft(
 @cli.command()
 @click.argument("posts", nargs=-1, required=True)
 @click.option("--schedule", default=None, help="ISO datetime, 'next', or 'now'")
-@click.option("--tag", "tags", multiple=True, help="Tag name (repeatable)")
+@click.option("--tag", "tags", multiple=True, help="Tag name or existing slug (repeatable; names auto-created)")
 @click.option("--title", default=None)
 @click.option("--media", default=None, help="Comma-separated media IDs (first post)")
 @click.option("--share/--no-share", default=False)
@@ -765,6 +765,7 @@ def thread(
     api_key, account, use_text, use_json, quiet, debug,
 ):
     """Create a multi-post thread. Provide 2+ posts as separate arguments."""
+    validate_article_input(platform, None, None, locals())
     platform_fields = dict(
         reply_settings=reply_settings, subscribers_only=subscribers_only,
         share_with_followers=share_with_followers,
@@ -796,12 +797,11 @@ def thread(
             mastodon=mastodon, substack=substack, all_platforms=all_platforms,
         )
 
-        if tags:
-            for w in client.ensure_tags(ssid, list(tags)):
-                console.warning(w)
+        tag_map = client.resolve_tag_slugs(ssid, list(tags)) if tags else {}
 
         payload = _build_draft_payload(
-            posts_text=posts_list, schedule=schedule, tags=list(tags),
+            posts_text=posts_list, schedule=schedule,
+            tags=list(dict.fromkeys(tag_map.values())),
             title=title, media=media, share=share, reply_to=reply_to,
             scratchpad=scratchpad, threadify=False,
             auto_retweet=auto_retweet, auto_plug=auto_plug,
@@ -877,7 +877,7 @@ def open_draft(draft_id, api_key, account, use_text, use_json, quiet, debug):
 @click.option("--file", "input_file", default=None, type=click.Path(exists=True))
 @click.option("--schedule", default=None)
 @click.option("--plan", default=None)
-@click.option("--tag", "tags", multiple=True)
+@click.option("--tag", "tags", multiple=True, help="Tag name or existing slug (repeatable)")
 @click.option("--title", default=None)
 @click.option("--share/--unshare", "share_flag", default=None)
 @click.option("--scratchpad", default=None)
@@ -911,7 +911,8 @@ def update(
     linkedin_first_comment, linkedin_reshare_target,
     api_key, account, use_text, use_json, quiet, debug,
 ):
-    """Update an existing draft. Text supports === for thread post splitting."""
+    """Update a draft; X Articles reject post-only text/media/disclosure options."""
+    validate_article_input(platform, content_markdown, cover_media_id, locals())
     platform_fields = dict(
         reply_settings=reply_settings, subscribers_only=subscribers_only,
         share_with_followers=share_with_followers,
@@ -931,9 +932,7 @@ def update(
     with client:
         ssid = _resolve_account_id(client, account, cfg)
 
-        if tags:
-            for w in client.ensure_tags(ssid, list(tags)):
-                console.warning(w)
+        tag_map = client.resolve_tag_slugs(ssid, list(tags)) if tags else {}
 
         payload: dict[str, Any] = {}
 
@@ -1097,7 +1096,7 @@ def update(
             payload["plan_at"] = plan
 
         if tags:
-            payload["tags"] = list(tags)
+            payload["tags"] = list(dict.fromkeys(tag_map.values()))
         if title:
             payload["draft_title"] = title
         if force_overwrite_comments:
@@ -1268,7 +1267,7 @@ def upload(file_path, no_wait, poll_timeout, alt_text, api_key, account, use_tex
 @cli.command()
 @click.argument("file_path", type=click.Path(exists=True))
 @click.option("--schedule", default=None, help="Default schedule for all drafts")
-@click.option("--tag", "tags", multiple=True, help="Default tag (repeatable)")
+@click.option("--tag", "tags", multiple=True, help="Default tag name or existing slug (repeatable)")
 @click.option("--share/--no-share", default=False)
 @click.option("--dry-run", is_flag=True)
 @click.option("--output", "output_file", default=None, type=click.Path(), help="JSON results log")
@@ -1317,9 +1316,7 @@ def batch(file_path, schedule, tags, share, dry_run, output_file, api_key, accou
         all_tags = set()
         for e in entries:
             all_tags.update(e.tags)
-        if all_tags:
-            for w in client.ensure_tags(ssid, list(all_tags)):
-                console.warning(w)
+        tag_map = client.resolve_tag_slugs(ssid, sorted(all_tags)) if all_tags else {}
 
         created: list[dict] = []
         errors: list[dict] = []
@@ -1331,7 +1328,7 @@ def batch(file_path, schedule, tags, share, dry_run, output_file, api_key, accou
             payload = _build_draft_payload(
                 posts_text=entry.posts,
                 schedule=entry.schedule,
-                tags=entry.tags,
+                tags=list(dict.fromkeys(tag_map[name] for name in entry.tags)),
                 title=entry.title,
                 media=",".join(entry.media_ids) if entry.media_ids else None,
                 share=share,
@@ -1751,6 +1748,7 @@ def _build_draft_payload(
     target_platforms = platforms or ["x"]
     quote_platform = _quote_platform(quote_post_url, target_platforms) if quote_post_url else None
     if "x_article" in target_platforms:
+        validate_article_options(locals())
         if len(target_platforms) != 1 or not content_markdown or posts_text:
             raise TypefullyError(
                 "x_article requires only --platform x_article and --content-markdown",

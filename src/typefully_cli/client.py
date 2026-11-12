@@ -7,7 +7,7 @@ import time
 
 import httpx
 
-from typefully_cli.exceptions import AccountError, APIError
+from typefully_cli.exceptions import AccountError, APIError, TypefullyError
 from typefully_cli.validation import validate_length
 
 
@@ -220,6 +220,63 @@ class TypefullyClient:
                 except APIError:
                     warnings.append(f"Could not create tag '{name}'")
         return warnings
+
+    def resolve_tag_slugs(self, social_set_id: int, values: list[str]) -> dict[str, str]:
+        """Map each input name/exact slug to its authoritative slug before draft writes.
+
+        Unlike ensure_tags (which retains its warning-list contract), resolution
+        failures are fatal. Never guess slugs from display names.
+        """
+        if not values:
+            return {}
+        tags = []
+        offset = 0
+        while True:
+            page = self.list_tags(social_set_id, limit=50, offset=offset)
+            items = page.get("results", [])
+            tags.extend(items)
+            if not items:
+                if page.get("next"):
+                    raise TypefullyError("Tag pagination returned an empty page", code="tag_resolution_failed")
+                break
+            offset += len(items)
+            if not page.get("next") and len(items) < 50:
+                break
+
+        def find(value):
+            exact = [tag for tag in tags if tag.get("slug") == value]
+            if exact:
+                return exact[0]["slug"]
+            matches = [tag for tag in tags if tag.get("name", "").casefold() == value.casefold()]
+            exact_names = [tag for tag in matches if tag.get("name") == value]
+            matches = exact_names or matches
+            if len(matches) > 1:
+                raise TypefullyError(
+                    f"Ambiguous tag name '{value}'; pass its exact slug",
+                    code="tag_resolution_failed",
+                )
+            if matches:
+                slug = matches[0].get("slug")
+                if not isinstance(slug, str) or not slug:
+                    raise TypefullyError("Tag response is missing its slug", code="tag_resolution_failed")
+                return slug
+            return None
+
+        # Validate all new names before creating any tags.
+        for value in values:
+            if find(value) is None:
+                validate_length(value, 1, 32, "Tag name")
+        resolved = {}
+        for value in values:
+            slug = find(value)
+            if slug is None:
+                created = self.create_tag(social_set_id, value)
+                slug = created.get("slug")
+                if not isinstance(slug, str) or not slug:
+                    raise TypefullyError("Created tag response is missing its slug", code="tag_resolution_failed")
+                tags.append({"name": value, **created})
+            resolved[value] = slug
+        return resolved
 
     # --- Media ---
 

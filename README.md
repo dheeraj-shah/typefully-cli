@@ -393,3 +393,23 @@ Python CLI commands, local validation and authorization boundaries. It is distin
 from Typefully's official JavaScript agent skill. Check the installed CLI's help:
 maintenance-branch features are not available in an older published package until
 an approved release is made.
+
+### Tag resolution, API diagnostics and article inputs
+
+`--tag` on draft, thread, update and batch accepts a display name or an existing
+exact slug. Names are resolved across tag pages or auto-created; requests use the
+server-returned slug. Duplicate aliases collapse to one tag. A resolution or
+creation failure stops before draft changes. Raw `draft-payload` tags remain
+explicit API slugs and must already exist.
+
+Errors keep the existing `api_error` code, status and message preview.
+`error.upstream` adds bounded parsed diagnostics, including marker-conflict
+missing IDs, malformed-marker subcodes and 422 details. Sensitive input/auth fields
+are redacted there; `upstream_truncated` signals limits. Plain-text errors and
+clean per-item stdout messages retain their existing behavior. Inspect errors and
+preserve anchors; no mutation is automatically retried or forced.
+
+X Article create/update inputs reject incompatible text/file/media, reply/quote/
+community, disclosure, preview and append flags before requests. Use article
+Markdown and cover fields with ordinary metadata; post-only options are not ignored.
+See the [November 12 source/capability baseline](docs/upstream-parity-2026-11-12.md).

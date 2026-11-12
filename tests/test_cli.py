@@ -624,6 +624,7 @@ def _make_client_mock(MockClient):
     inst.__exit__ = MagicMock(return_value=False)
     inst.get_social_sets.return_value = [{"id": 1, "username": "TestBrand"}]
     inst.resolve_account.return_value = 1
+    inst.resolve_tag_slugs.side_effect = lambda _sid, names: {name: name for name in names}
     return inst
 
 
