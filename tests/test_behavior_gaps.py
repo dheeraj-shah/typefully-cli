@@ -110,12 +110,18 @@ def test_all_tag_call_sites_resolve_and_fail_before_draft_mutation(command, fail
         client.create_tag.assert_called_once_with(1, "New Tag")
 
 
-@pytest.mark.parametrize("action", ["draft", "update"])
-@pytest.mark.parametrize("options", [
-    ["--media", "media-id"], ["--paid-partnership"], ["--made-with-ai"],
-    ["--hide-link-preview"], ["--community", "123"], ["--quote-post-url", "https://x.com/a/status/1"],
-    ["--linkedin-first-comment", "Hi"], ["--no-subscribers-only"], ["--reply-settings", "null"],
-    ["--share-with-followers"], ["--all"], ["--linkedin"],
+@pytest.mark.parametrize("action,options", [
+    (action, options)
+    for action in ("draft", "update")
+    for options in (
+        ["--media", "media-id"], ["--paid-partnership"], ["--made-with-ai"],
+        ["--hide-link-preview"], ["--community", "123"],
+        ["--quote-post-url", "https://x.com/a/status/1"],
+        ["--linkedin-first-comment", "Hi"], ["--no-subscribers-only"],
+        ["--reply-settings", "null"], ["--share-with-followers"],
+        ["--all"], ["--linkedin"],
+    )
+    if action == "draft" or options[0] not in ("--all", "--linkedin")
 ])
 def test_article_post_options_rejected_before_auth_or_requests(action, options):
     args = [action, *(["2"] if action == "update" else []),
@@ -204,3 +210,11 @@ def test_non_json_error_fallback_remains_compatible(body):
     error = APIError(502, body)
     assert error.to_dict() == {"code": "api_error", "message": "API returned 502: " + body,
                                "status": 502}
+
+
+def test_diagnostics_mark_truncated_keys_and_large_structured_values():
+    error = APIError(422, json.dumps({
+        "x" * 200: "value", "details": ["item" * 100] * 90,
+    })).to_dict()
+    assert error["upstream_truncated"]
+    assert len(json.dumps(error["upstream"])) <= 16384

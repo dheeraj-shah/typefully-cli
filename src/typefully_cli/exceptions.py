@@ -62,7 +62,7 @@ def _upstream_diagnostics(body):
             truncated[0] = True
             return "[truncated]"
         if isinstance(value, dict):
-            if len(value) > 50:
+            if len(value) > 50 or any(len(key) > 128 for key in value):
                 truncated[0] = True
             return {
                 key[:128]: "[redacted]" if sensitive.search(key) else clean(item, depth + 1)
