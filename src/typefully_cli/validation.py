@@ -99,6 +99,12 @@ def validate_article_options(options):
 
 def validate_article_input(platform, content_markdown, cover_media_id, options):
     targets = {value.strip().lower() for value in (platform or "").split(",")}
+    if (
+        platform is not None
+        and (content_markdown is not None or cover_media_id is not None)
+        and targets - {""} != {"x_article"}
+    ):
+        invalid("Article Markdown and cover fields require --platform x_article")
     if "x_article" in targets and len(targets - {""}) > 1:
         invalid("X Articles must be a standalone platform")
     if content_markdown is not None or cover_media_id is not None or "x_article" in targets:

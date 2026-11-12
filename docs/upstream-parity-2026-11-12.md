@@ -47,8 +47,10 @@ claimed for this run.
    before any draft create/PATCH; batch preflights the full input before its first
    draft. Auto-creation remains supported. Existing `ensure_tags` retains its
    documented warning-list return contract.
-2. **Useful API diagnostics.** Existing top-level error fields and
-   `APIError.user_message` are retained. Optional `error.upstream` carries
+2. **Useful API diagnostics.** Existing top-level error fields, benign message preview formatting and
+   `APIError.user_message` are retained. Recognized credential/input fields and
+   token patterns are redacted from the message preview as well as parsed diagnostics;
+   arbitrary secrets cannot be detected perfectly. Optional `error.upstream` carries
    parsed, bounded, redacted diagnostics, rather than losing every detail after
    the first 200 characters. Marker missing IDs, malformed-marker subcodes and
    422 validation locations/messages remain available. Non-JSON fallback stays
@@ -56,7 +58,9 @@ claimed for this run.
 3. **Article option rejection.** Explicit article create/update inputs reject
    post-only text/file/media, replies/quotes/communities, disclosure and preview
    flags, append/threadify and incompatible platform flags before auth or
-   requests. Pure payload building also rejects ignored article post options.
+   requests. Explicit incompatible platform targets with article Markdown/cover
+   fields are rejected before tag resolution; omitted-platform default behavior
+   remains unchanged. Pure payload building also rejects ignored article post options.
    Valid Markdown, cover-only/null updates and ordinary metadata remain supported.
 
 ## Complete operation matrix
@@ -186,7 +190,8 @@ no successful rerun or live monitor repair is claimed.
 
 Regression coverage includes name/capitalization/exact-slug collisions,
 pagination, opaque creation slugs, deduplication, and failures across all four
-writers; long marker/422 diagnostics, bounded/redacted errors and non-JSON fallback;
+writers; long marker/422 diagnostics, bounded/redacted full error envelopes including
+leading sensitive fields and non-JSON fallback;
 and incompatible article flags before requests on both create/update paths.
 The existing CI runs all offline Python tests and exact Ruff selection on
 Python 3.9–3.13, plus both mocked Node collector suites. Final-head CI evidence is

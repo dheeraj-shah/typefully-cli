@@ -218,3 +218,61 @@ def test_diagnostics_mark_truncated_keys_and_large_structured_values():
     })).to_dict()
     assert error["upstream_truncated"]
     assert len(json.dumps(error["upstream"])) <= 16384
+
+
+def test_error_envelope_redacts_sensitive_fields_at_the_front_too():
+    body = json.dumps({
+        "api_key": "key-at-front", "input": {"text": "private-at-front"},
+        "headers": {"Authorization": "Bearer front-token"},
+        "request": {"body": "private-request"},
+        "error": {"code": "VALIDATION_ERROR", "message": "Bearer message-token tf_secretkey",
+                  "details": {"subcode": "mid_mention"}},
+    })
+    error = APIError(400, body)
+    envelope = json.dumps({"ok": False, "error": error.to_dict()})
+    for secret in ("key-at-front", "private-at-front", "front-token",
+                   "private-request", "message-token", "tf_secretkey"):
+        assert secret not in envelope
+    assert error.to_dict()["code"] == "api_error"
+    assert error.to_dict()["status"] == 400
+    assert error.user_message == "API error (HTTP 400)"
+    assert error.to_dict()["upstream"]["error"]["details"]["subcode"] == "mid_mention"
+
+
+@pytest.mark.parametrize("body,secret", [
+    ("Bearer plain-token failed", "plain-token"),
+    ("Invalid tf_example-secret in response", "tf_example-secret"),
+    ('{"input": "private-incomplete', "private-incomplete"),
+])
+def test_unparsed_message_preview_redacts_recognized_sensitive_values(body, secret):
+    assert secret not in json.dumps(APIError(502, body).to_dict())
+
+
+@pytest.mark.parametrize("action", ["draft", "update"])
+@pytest.mark.parametrize("platform", ["x", "linkedin"])
+@pytest.mark.parametrize("field,value", [
+    ("--content-markdown", "# Title"), ("--cover-media-id", "null"),
+])
+def test_article_fields_reject_explicit_post_platform_before_auth(action, platform, field, value):
+    args = [action, *(["2"] if action == "update" else []),
+            "--platform", platform, field, value, "--tag", "Must not be created"]
+    with patch("typefully_cli.cli._get_client_and_console") as auth:
+        result = runner().invoke(cli, args)
+    assert result.exit_code == 1, result.output
+    assert json.loads(result.stderr)["error"]["code"] == "invalid_input"
+    auth.assert_not_called()
+
+
+def test_new_tag_aliases_reuse_slug_even_if_server_canonicalizes_name():
+    with client_with_tags([], created={"name": "Canonical", "slug": "opaque"}) as client:
+        resolved = client.resolve_tag_slugs(1, ["New Tag", "new tag", "New Tag"])
+        assert set(resolved.values()) == {"opaque"}
+        client.create_tag.assert_called_once_with(1, "New Tag")
+
+
+def test_article_validator_preserves_omitted_platform_selection():
+    from typefully_cli.validation import validate_article_input
+
+    options = {}
+    validate_article_input(None, "# Title", None, options)
+    assert options == {}

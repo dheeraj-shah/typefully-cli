@@ -41,21 +41,47 @@ class AuthError(TypefullyError):
         super().__init__(message, hint=hint)
 
 
+_SENSITIVE_FIELD = re.compile(
+    r"api.?key|authorization|password|secret|token|cookie|^input$|^headers$|^request$",
+    re.IGNORECASE,
+)
+
+
+def _redact_error_text(value):
+    value = re.sub(r'(?i)\bBearer\s+[^\s"<>]+', "Bearer [redacted]", value)
+    value = re.sub(r"\btf_[A-Za-z0-9_-]+", "[redacted]", value)
+    return re.sub(
+        r'(?i)((?:api[_-]?key|token|secret|password)=)[^&\s"<>]+',
+        r"\1[redacted]", value,
+    )
+
+
+def _error_preview(body, upstream, truncated, redacted):
+    if upstream is not None and (truncated or redacted):
+        return json.dumps(upstream)[:200]
+    text = _redact_error_text(body)
+    if upstream is None:
+        # Invalid/oversized JSON may not be parsed. Stop at a recognized field
+        # rather than risk displaying a partial sensitive value in its preview.
+        for match in re.finditer(r'"([^"\\]{1,256})"\s*:\s*', text[:4096]):
+            if _SENSITIVE_FIELD.search(match.group(1)):
+                text = text[:match.end()] + '"[redacted]"'
+                break
+    return text[:200]
+
+
 def _upstream_diagnostics(body):
     """Bound and redact optional parsed diagnostics; never retain an arbitrary raw body."""
     if len(body) > 262144:
-        return None, True
+        return None, True, False
     try:
         parsed = json.loads(body)
     except (ValueError, TypeError, RecursionError):
-        return None, False
+        return None, False, False
     if not isinstance(parsed, (dict, list)):
-        return None, False
+        return None, False, False
     truncated = [False]
-    sensitive = re.compile(
-        r"api.?key|authorization|password|secret|token|cookie|^input$|^headers$|^request$",
-        re.IGNORECASE,
-    )
+    redacted = [False]
 
     def clean(value, depth=0):
         if depth > 8:
@@ -64,21 +90,23 @@ def _upstream_diagnostics(body):
         if isinstance(value, dict):
             if len(value) > 50 or any(len(key) > 128 for key in value):
                 truncated[0] = True
-            return {
-                key[:128]: "[redacted]" if sensitive.search(key) else clean(item, depth + 1)
-                for key, item in list(value.items())[:50]
-            }
+            result = {}
+            for key, item in list(value.items())[:50]:
+                if _SENSITIVE_FIELD.search(key):
+                    result[key[:128]] = "[redacted]"
+                    redacted[0] = True
+                else:
+                    result[key[:128]] = clean(item, depth + 1)
+            return result
         if isinstance(value, list):
             if len(value) > 100:
                 truncated[0] = True
             return [clean(item, depth + 1) for item in value[:100]]
         if isinstance(value, str):
-            value = re.sub(r'(?i)\bBearer\s+[^\s"<>]+', "Bearer [redacted]", value)
-            value = re.sub(r"\btf_[A-Za-z0-9_-]+", "[redacted]", value)
-            value = re.sub(
-                r'(?i)((?:api[_-]?key|token|secret|password)=)[^&\s"<>]+',
-                r"\1[redacted]", value,
-            )
+            safe_text = _redact_error_text(value)
+            if safe_text != value:
+                redacted[0] = True
+            value = safe_text
             if len(value) > 2048:
                 truncated[0] = True
             return value[:2048]
@@ -93,7 +121,7 @@ def _upstream_diagnostics(body):
         # A bounded preview of already-redacted diagnostics, never the raw body.
         safe = {"preview": encoded[:2048]}
         truncated[0] = True
-    return safe, truncated[0]
+    return safe, truncated[0], redacted[0]
 
 
 class APIError(TypefullyError):
@@ -103,8 +131,9 @@ class APIError(TypefullyError):
 
     def __init__(self, status_code: int, body: str, *, hint: str = ""):
         self.status_code = status_code
-        self.upstream, self.upstream_truncated = _upstream_diagnostics(body)
-        super().__init__(f"API returned {status_code}: {body[:200]}", hint=hint)
+        self.upstream, self.upstream_truncated, redacted = _upstream_diagnostics(body)
+        preview = _error_preview(body, self.upstream, self.upstream_truncated, redacted)
+        super().__init__(f"API returned {status_code}: {preview}", hint=hint)
 
     @property
     def user_message(self) -> str:

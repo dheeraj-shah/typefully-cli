@@ -243,6 +243,8 @@ class TypefullyClient:
             if not page.get("next") and len(items) < 50:
                 break
 
+        aliases = {}
+
         def find(value):
             exact = [tag for tag in tags if tag.get("slug") == value]
             if exact:
@@ -260,7 +262,7 @@ class TypefullyClient:
                 if not isinstance(slug, str) or not slug:
                     raise TypefullyError("Tag response is missing its slug", code="tag_resolution_failed")
                 return slug
-            return None
+            return aliases.get(value.casefold())
 
         # Validate all new names before creating any tags.
         for value in values:
@@ -275,6 +277,7 @@ class TypefullyClient:
                 if not isinstance(slug, str) or not slug:
                     raise TypefullyError("Created tag response is missing its slug", code="tag_resolution_failed")
                 tags.append({"name": value, **created})
+                aliases[value.casefold()] = slug
             resolved[value] = slug
         return resolved
 

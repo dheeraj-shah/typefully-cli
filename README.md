@@ -405,9 +405,10 @@ explicit API slugs and must already exist.
 
 Errors keep the existing `api_error` code, status and message preview.
 `error.upstream` adds bounded parsed diagnostics, including marker-conflict
-missing IDs, malformed-marker subcodes and 422 details. Sensitive input/auth fields
-are redacted there; `upstream_truncated` signals limits. Plain-text errors and
-clean per-item stdout messages retain their existing behavior. Inspect errors and
+missing IDs, malformed-marker subcodes and 422 details. Recognized input/auth fields and token patterns
+are redacted in both parsed diagnostics and the message preview; `upstream_truncated` signals limits. Plain-text errors and
+clean per-item stdout messages retain their existing behavior. This does not
+promise perfect detection of arbitrary secrets. Inspect errors and
 preserve anchors; no mutation is automatically retried or forced.
 
 X Article create/update inputs reject incompatible text/file/media, reply/quote/
