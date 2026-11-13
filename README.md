@@ -415,3 +415,11 @@ X Article create/update inputs reject incompatible text/file/media, reply/quote/
 community, disclosure, preview and append flags before requests. Use article
 Markdown and cover fields with ordinary metadata; post-only options are not ignored.
 See the [November 12 source/capability baseline](docs/upstream-parity-2026-11-12.md).
+
+### Planning times and nullable output
+
+`draft --plan` uses your configured timezone for timestamps without an explicit
+offset, just like scheduling. Explicit offsets are preserved. Planned drafts
+remain inert until you explicitly schedule/publish them. Empty API previews and
+nullable platform configurations no longer cause list/recent output failures.
+See the [November 13 capability review](docs/upstream-parity-2026-11-13.md).

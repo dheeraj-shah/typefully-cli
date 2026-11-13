@@ -233,3 +233,26 @@ def test_recent_article_and_non_x_published_urls():
     assert "https://www.linkedin.com/feed/update/urn:li:share:1" in output
     assert "https://substack.com/@someone/note/c-1" in output
     assert "https://x.com/i/article/123" in output
+
+
+def test_nullable_list_preview_renders_without_crashing():
+    draft = {"id": 4, "status": "draft", "preview": None, "published_at": None}
+    assert "(no text)" in _capture_print(fmt.print_drafts_list, {"results": [draft]})
+    assert "(no text)" in _capture_print(fmt.print_recent, [draft])
+
+
+def test_nullable_x_platform_preserves_preview_fallback():
+    draft = {"id": 4, "preview": "LinkedIn preview", "platforms": {"x": None}}
+    assert "LinkedIn preview" in _capture_print(fmt.print_drafts_list, {"results": [draft]})
+    assert "LinkedIn preview" in _capture_print(fmt.print_recent, [draft])
+
+
+def test_recent_csv_accepts_nullable_api_fields(capsys):
+    import csv
+    import io
+    from typefully_cli.cli import _write_recent_csv
+
+    _write_recent_csv([{"id": 4, "published_at": None, "preview": None,
+                        "platforms": {"x": None}}])
+    rows = list(csv.reader(io.StringIO(capsys.readouterr().out)))
+    assert rows == [["id", "published_at", "text", "x_url"], ["4", "", "", ""]]

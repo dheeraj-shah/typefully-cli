@@ -276,3 +276,45 @@ def test_article_validator_preserves_omitted_platform_selection():
     options = {}
     validate_article_input(None, "# Title", None, options)
     assert options == {}
+
+
+@pytest.mark.parametrize("value,expected", [
+    ("2027-01-01T10:00:00", "2027-01-01T04:30:00Z"),
+    ("2027-01-01T10:00:00+02:00", "2027-01-01T10:00:00+02:00"),
+    ("2027-01-01T10:00:00Z", "2027-01-01T10:00:00Z"),
+    ("next", "next-free-slot"),
+])
+def test_draft_plan_uses_configured_timezone(value, expected):
+    client = MagicMock()
+    client.__enter__.return_value = client
+    client.resolve_account.return_value = 1
+    client.create_draft.return_value = {"id": 2, "status": "planned"}
+    cfg = Config(default_account="offline", timezone="Asia/Kolkata")
+    with patch("typefully_cli.cli._get_client_and_console",
+               return_value=(client, Console(quiet=True), cfg)):
+        result = runner().invoke(cli, ["draft", "Hello", "--plan", value, "--json", "--quiet"])
+    assert result.exit_code == 0, result.output
+    payload = client.create_draft.call_args.args[1]
+    assert payload["plan_at"] == expected
+    assert "publish_at" not in payload
+
+
+@pytest.mark.parametrize("append", [True, False])
+def test_update_nullable_selected_platform(append):
+    client = MagicMock()
+    client.__enter__.return_value = client
+    client.resolve_account.return_value = 1
+    client.get_draft.return_value = {"platforms": {"x": None}}
+    client.update_draft.return_value = {"id": 2, "status": "draft"}
+    args = ["update", "2", "--platform", "x", "--json", "--quiet"]
+    args += ["New post", "--append"] if append else ["--media", "existing-media-id"]
+    with patch("typefully_cli.cli._get_client_and_console",
+               return_value=(client, Console(quiet=True), Config(default_account="offline"))):
+        result = runner().invoke(cli, args)
+    if append:
+        assert result.exit_code == 0, result.output
+        assert client.update_draft.call_args.args[2]["platforms"]["x"]["posts"] == [{"text": "New post"}]
+    else:
+        assert result.exit_code == 1, result.output
+        assert "invalid_input" in result.output
+        client.update_draft.assert_not_called()

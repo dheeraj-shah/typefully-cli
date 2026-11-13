@@ -388,15 +388,15 @@ def _write_recent_csv(posts: list[dict]) -> None:
     for d in posts:
         text = ""
         platforms = d.get("platforms", {})
-        if isinstance(platforms, dict) and "x" in platforms:
+        if isinstance(platforms, dict) and isinstance(platforms.get("x"), dict):
             pp = platforms.get("x", {}).get("posts", [])
             if pp:
                 text = pp[0].get("text", "")
         if not text:
-            text = d.get("preview", "")
+            text = d.get("preview") or ""
         writer.writerow([
             d.get("id", ""),
-            d.get("published_at", "")[:19],
+            (d.get("published_at") or "")[:19],
             text[:280],
             d.get("x_published_url", ""),
         ])
@@ -632,7 +632,8 @@ def recent(limit, since, until_date, output_format, api_key, account, use_text, 
 @click.option("--file", "-f", "input_file", default=None, type=click.Path(exists=True),
               help="Read post content from a file")
 @click.option("--schedule", default=None, help="ISO datetime, 'next', or 'now'")
-@click.option("--plan", default=None, help="ISO datetime or 'next'; calendar only, does not publish")
+@click.option("--plan", default=None,
+              help="ISO datetime or 'next'; naive times use configured timezone; calendar only, does not publish")
 @click.option("--tag", "tags", multiple=True, help="Tag name or existing slug (repeatable; names auto-created)")
 @click.option("--title", default=None)
 @click.option("--media", default=None, help="Comma-separated media IDs")
@@ -693,6 +694,7 @@ def draft(
     client, console, cfg = _get_client_and_console(api_key, quiet, debug=debug)
     use_text = _resolve_text_mode(use_text, use_json, cfg)
     schedule = _apply_timezone(schedule, cfg)
+    plan = _apply_timezone(plan, cfg)
     linkedin, threads, bluesky, mastodon = _apply_default_platforms(
         cfg, linkedin, threads, bluesky, mastodon, all_platforms,
     )
@@ -964,7 +966,7 @@ def update(
                     hide_link_preview=hide_link_preview,
                 )["platforms"]
                 for name, config in additions.items():
-                    old = existing.get("platforms", {}).get(name, {})
+                    old = existing.get("platforms", {}).get(name) or {}
                     old_posts = _editable_posts(name, old.get("posts", []))
                     if name == "substack" and old_posts:
                         raise TypefullyError(
@@ -1036,7 +1038,7 @@ def update(
                     or (media and (not qrt or name == quote_platform))
                 ):
                     continue
-                source = existing_platforms.get(name, {})
+                source = existing_platforms.get(name) or {}
                 posts = _editable_posts(name, source.get("posts", []))
                 if not posts:
                     raise TypefullyError(

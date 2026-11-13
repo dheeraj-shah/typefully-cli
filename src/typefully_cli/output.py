@@ -129,12 +129,12 @@ def print_drafts_list(data: dict) -> None:
         # Get text from platforms or preview
         text = ""
         platforms = d.get("platforms", {})
-        if isinstance(platforms, dict) and "x" in platforms:
+        if isinstance(platforms, dict) and isinstance(platforms.get("x"), dict):
             posts = platforms.get("x", {}).get("posts", [])
             if posts:
                 text = posts[0].get("text", "")
         if not text:
-            text = d.get("preview", "(no text)")
+            text = d.get("preview") or "(no text)"
         preview = text[:80] + "..." if len(text) > 80 else text
         draft_id = d.get("id", "?")
         tags = d.get("tags", [])
@@ -155,7 +155,7 @@ def print_recent(posts: list[dict]) -> None:
         draft_id = d.get("id", "?")
         text = ""
         platforms = d.get("platforms", {})
-        if isinstance(platforms, dict) and "x" in platforms:
+        if isinstance(platforms, dict) and isinstance(platforms.get("x"), dict):
             pp = platforms.get("x", {}).get("posts", [])
             if pp:
                 text = "\n  ---\n".join(p.get("text", "") for p in pp)
@@ -163,7 +163,7 @@ def print_recent(posts: list[dict]) -> None:
             article = d.get("platforms", {}).get("x_article") or {}
             text = article.get("content_markdown") or ""
         if not text:
-            text = d.get("preview", "(no text)")
+            text = d.get("preview") or "(no text)"
         x_url = d.get("x_published_url", "")
         _console.print(f"--- \\[{_esc(pub)}] (ID: {draft_id}) ---")
         _console.print(f"  {_esc(text)}")
