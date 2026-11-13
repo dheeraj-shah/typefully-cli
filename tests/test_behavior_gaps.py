@@ -316,5 +316,5 @@ def test_update_nullable_selected_platform(append):
         assert client.update_draft.call_args.args[2]["platforms"]["x"]["posts"] == [{"text": "New post"}]
     else:
         assert result.exit_code == 1, result.output
-        assert "invalid_input" in result.output
+        assert "invalid_input" in result.output + result.stderr
         client.update_draft.assert_not_called()
