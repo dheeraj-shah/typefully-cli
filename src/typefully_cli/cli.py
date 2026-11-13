@@ -7,6 +7,7 @@ import datetime
 import io
 import json
 import os
+import re
 import sys
 from functools import wraps
 from typing import Any
@@ -26,19 +27,26 @@ from typefully_cli import output as fmt
 from typefully_cli.completions import completions
 from typefully_cli.telemetry import record_usage
 from typefully_cli.profile_sharing import maybe_sync_profiles
+from typefully_cli.validation import (
+    COMMENT_PLATFORMS, DRAFT_ORDERS, DRAFT_STATUSES,
+    validate_article_input, validate_article_options,
+    validate_choice, validate_length, validate_queue_dates, validate_queue_rules, validate_uuid,
+)
 
 
 # --- Shared option decorator ---
 
 
-def shared_options(f):
+def shared_options(f=None, *, text_option="--text"):
     """Add --api-key, --account, --text, --json, --quiet, --debug to a subcommand."""
+    if f is None:
+        return lambda command: shared_options(command, text_option=text_option)
 
     @click.option("--api-key", default=None, help="API key (overrides env/config)")
     @click.option(
         "--account", "-a", default=None, help="Account name, username, or numeric ID"
     )
-    @click.option("--text", "use_text", is_flag=True, help="Human-readable output (default)")
+    @click.option(text_option, "use_text", is_flag=True, help="Human-readable output (default)")
     @click.option("--json", "use_json", is_flag=True, help="JSON output for agents/scripts")
     @click.option("--quiet", "-q", is_flag=True, help="Suppress non-error stderr")
     @click.option("--debug", is_flag=True, hidden=True, help="Log HTTP requests to stderr")
@@ -106,6 +114,8 @@ def _validate_date(value: str, name: str) -> str:
     if not value:
         return value
     try:
+        if not re.fullmatch(r"\d{4}-\d{2}-\d{2}", value):
+            raise ValueError
         datetime.date.fromisoformat(value)
     except ValueError:
         raise TypefullyError(
@@ -378,15 +388,15 @@ def _write_recent_csv(posts: list[dict]) -> None:
     for d in posts:
         text = ""
         platforms = d.get("platforms", {})
-        if isinstance(platforms, dict) and "x" in platforms:
+        if isinstance(platforms, dict) and isinstance(platforms.get("x"), dict):
             pp = platforms.get("x", {}).get("posts", [])
             if pp:
                 text = pp[0].get("text", "")
         if not text:
-            text = d.get("preview", "")
+            text = d.get("preview") or ""
         writer.writerow([
             d.get("id", ""),
-            d.get("published_at", "")[:19],
+            (d.get("published_at") or "")[:19],
             text[:280],
             d.get("x_published_url", ""),
         ])
@@ -622,8 +632,9 @@ def recent(limit, since, until_date, output_format, api_key, account, use_text, 
 @click.option("--file", "-f", "input_file", default=None, type=click.Path(exists=True),
               help="Read post content from a file")
 @click.option("--schedule", default=None, help="ISO datetime, 'next', or 'now'")
-@click.option("--plan", default=None, help="ISO datetime or 'next'; calendar only, does not publish")
-@click.option("--tag", "tags", multiple=True, help="Tag name (repeatable, auto-created)")
+@click.option("--plan", default=None,
+              help="ISO datetime or 'next'; naive times use configured timezone; calendar only, does not publish")
+@click.option("--tag", "tags", multiple=True, help="Tag name or existing slug (repeatable; names auto-created)")
 @click.option("--title", default=None)
 @click.option("--media", default=None, help="Comma-separated media IDs")
 @click.option("--share/--no-share", default=False)
@@ -661,7 +672,8 @@ def draft(
     linkedin_first_comment, linkedin_reshare_target,
     api_key, account, use_text, use_json, quiet, debug,
 ):
-    """Create a draft post."""
+    """Create a draft post. X Articles reject post-only options."""
+    validate_article_input(platform, content_markdown, cover_media_id, locals())
     platform_fields = dict(
         reply_settings=reply_settings, subscribers_only=subscribers_only,
         share_with_followers=share_with_followers,
@@ -682,6 +694,7 @@ def draft(
     client, console, cfg = _get_client_and_console(api_key, quiet, debug=debug)
     use_text = _resolve_text_mode(use_text, use_json, cfg)
     schedule = _apply_timezone(schedule, cfg)
+    plan = _apply_timezone(plan, cfg)
     linkedin, threads, bluesky, mastodon = _apply_default_platforms(
         cfg, linkedin, threads, bluesky, mastodon, all_platforms,
     )
@@ -693,13 +706,11 @@ def draft(
             mastodon=mastodon, substack=substack, all_platforms=all_platforms,
         )
 
-        # Tag auto-creation
-        if tags:
-            for w in client.ensure_tags(ssid, list(tags)):
-                console.warning(w)
+        tag_map = client.resolve_tag_slugs(ssid, list(tags)) if tags else {}
 
         payload = _build_draft_payload(
-            posts_text=[text] if text else [], schedule=schedule, plan=plan, tags=list(tags),
+            posts_text=[text] if text else [], schedule=schedule, plan=plan,
+            tags=list(dict.fromkeys(tag_map.values())),
             title=title, media=media, share=share, reply_to=reply_to,
             scratchpad=scratchpad, threadify=threadify,
             auto_retweet=auto_retweet, auto_plug=auto_plug,
@@ -720,7 +731,7 @@ def draft(
 @cli.command()
 @click.argument("posts", nargs=-1, required=True)
 @click.option("--schedule", default=None, help="ISO datetime, 'next', or 'now'")
-@click.option("--tag", "tags", multiple=True, help="Tag name (repeatable)")
+@click.option("--tag", "tags", multiple=True, help="Tag name or existing slug (repeatable; names auto-created)")
 @click.option("--title", default=None)
 @click.option("--media", default=None, help="Comma-separated media IDs (first post)")
 @click.option("--share/--no-share", default=False)
@@ -756,6 +767,7 @@ def thread(
     api_key, account, use_text, use_json, quiet, debug,
 ):
     """Create a multi-post thread. Provide 2+ posts as separate arguments."""
+    validate_article_input(platform, None, None, locals())
     platform_fields = dict(
         reply_settings=reply_settings, subscribers_only=subscribers_only,
         share_with_followers=share_with_followers,
@@ -787,12 +799,11 @@ def thread(
             mastodon=mastodon, substack=substack, all_platforms=all_platforms,
         )
 
-        if tags:
-            for w in client.ensure_tags(ssid, list(tags)):
-                console.warning(w)
+        tag_map = client.resolve_tag_slugs(ssid, list(tags)) if tags else {}
 
         payload = _build_draft_payload(
-            posts_text=posts_list, schedule=schedule, tags=list(tags),
+            posts_text=posts_list, schedule=schedule,
+            tags=list(dict.fromkeys(tag_map.values())),
             title=title, media=media, share=share, reply_to=reply_to,
             scratchpad=scratchpad, threadify=False,
             auto_retweet=auto_retweet, auto_plug=auto_plug,
@@ -868,7 +879,7 @@ def open_draft(draft_id, api_key, account, use_text, use_json, quiet, debug):
 @click.option("--file", "input_file", default=None, type=click.Path(exists=True))
 @click.option("--schedule", default=None)
 @click.option("--plan", default=None)
-@click.option("--tag", "tags", multiple=True)
+@click.option("--tag", "tags", multiple=True, help="Tag name or existing slug (repeatable)")
 @click.option("--title", default=None)
 @click.option("--share/--unshare", "share_flag", default=None)
 @click.option("--scratchpad", default=None)
@@ -902,7 +913,8 @@ def update(
     linkedin_first_comment, linkedin_reshare_target,
     api_key, account, use_text, use_json, quiet, debug,
 ):
-    """Update an existing draft. Text supports === for thread post splitting."""
+    """Update a draft; X Articles reject post-only text/media/disclosure options."""
+    validate_article_input(platform, content_markdown, cover_media_id, locals())
     platform_fields = dict(
         reply_settings=reply_settings, subscribers_only=subscribers_only,
         share_with_followers=share_with_followers,
@@ -922,9 +934,7 @@ def update(
     with client:
         ssid = _resolve_account_id(client, account, cfg)
 
-        if tags:
-            for w in client.ensure_tags(ssid, list(tags)):
-                console.warning(w)
+        tag_map = client.resolve_tag_slugs(ssid, list(tags)) if tags else {}
 
         payload: dict[str, Any] = {}
 
@@ -956,7 +966,7 @@ def update(
                     hide_link_preview=hide_link_preview,
                 )["platforms"]
                 for name, config in additions.items():
-                    old = existing.get("platforms", {}).get(name, {})
+                    old = existing.get("platforms", {}).get(name) or {}
                     old_posts = _editable_posts(name, old.get("posts", []))
                     if name == "substack" and old_posts:
                         raise TypefullyError(
@@ -1028,7 +1038,7 @@ def update(
                     or (media and (not qrt or name == quote_platform))
                 ):
                     continue
-                source = existing_platforms.get(name, {})
+                source = existing_platforms.get(name) or {}
                 posts = _editable_posts(name, source.get("posts", []))
                 if not posts:
                     raise TypefullyError(
@@ -1088,7 +1098,7 @@ def update(
             payload["plan_at"] = plan
 
         if tags:
-            payload["tags"] = list(tags)
+            payload["tags"] = list(dict.fromkeys(tag_map.values()))
         if title:
             payload["draft_title"] = title
         if force_overwrite_comments:
@@ -1151,6 +1161,8 @@ def delete(ids, api_key, account, use_text, use_json, quiet, debug):
 def drafts(draft_status, limit, offset, order, tag, content_filter, api_key, account, use_text, use_json, quiet, debug):
     """List drafts with optional filters."""
     _validate_limit(limit)
+    validate_choice(draft_status, DRAFT_STATUSES, "--status")
+    validate_choice(order, DRAFT_ORDERS, "--order")
     client, console, cfg = _get_client_and_console(api_key, quiet, debug=debug)
     use_text = _resolve_text_mode(use_text, use_json, cfg)
     with client:
@@ -1202,7 +1214,8 @@ def tags(limit, offset, api_key, account, use_text, use_json, quiet, debug):
 @shared_options
 @error_handler
 def tag_create(name, api_key, account, use_text, use_json, quiet, debug):
-    """Create a tag."""
+    """Create a tag with a 1..32 character display name."""
+    validate_length(name, 1, 32, "Tag name")
     client, console, cfg = _get_client_and_console(api_key, quiet, debug=debug)
     use_text = _resolve_text_mode(use_text, use_json, cfg)
     with client:
@@ -1220,8 +1233,8 @@ def tag_create(name, api_key, account, use_text, use_json, quiet, debug):
 @cli.command()
 @click.argument("file_path", type=click.Path(exists=True))
 @click.option("--no-wait", is_flag=True, help="Return immediately after S3 upload, skip processing poll")
-@click.option("--timeout", "poll_timeout", default=60, type=int,
-              help="Media processing poll timeout in seconds")
+@click.option("--timeout", "poll_timeout", default=60, type=click.IntRange(min=1),
+              help="Processing timeout in seconds; timeout returns media_processing_timeout")
 @click.option("--alt-text", default=None, help="Media alt text (max 1000 characters)")
 @shared_options
 @error_handler
@@ -1256,7 +1269,7 @@ def upload(file_path, no_wait, poll_timeout, alt_text, api_key, account, use_tex
 @cli.command()
 @click.argument("file_path", type=click.Path(exists=True))
 @click.option("--schedule", default=None, help="Default schedule for all drafts")
-@click.option("--tag", "tags", multiple=True, help="Default tag (repeatable)")
+@click.option("--tag", "tags", multiple=True, help="Default tag name or existing slug (repeatable)")
 @click.option("--share/--no-share", default=False)
 @click.option("--dry-run", is_flag=True)
 @click.option("--output", "output_file", default=None, type=click.Path(), help="JSON results log")
@@ -1305,9 +1318,7 @@ def batch(file_path, schedule, tags, share, dry_run, output_file, api_key, accou
         all_tags = set()
         for e in entries:
             all_tags.update(e.tags)
-        if all_tags:
-            for w in client.ensure_tags(ssid, list(all_tags)):
-                console.warning(w)
+        tag_map = client.resolve_tag_slugs(ssid, sorted(all_tags)) if all_tags else {}
 
         created: list[dict] = []
         errors: list[dict] = []
@@ -1319,7 +1330,7 @@ def batch(file_path, schedule, tags, share, dry_run, output_file, api_key, accou
             payload = _build_draft_payload(
                 posts_text=entry.posts,
                 schedule=entry.schedule,
-                tags=entry.tags,
+                tags=list(dict.fromkeys(tag_map[name] for name in entry.tags)),
                 title=entry.title,
                 media=",".join(entry.media_ids) if entry.media_ids else None,
                 share=share,
@@ -1416,9 +1427,14 @@ def followers(platform, start_date, end_date, api_key, account, use_text, use_js
 @shared_options
 @error_handler
 def queue(start_date, end_date, api_key, account, use_text, use_json, quiet, debug):
-    """View the posting queue (scheduled slots and drafts)."""
+    """View free slots and scheduled/planned drafts between two required dates.
+
+    Dates use the account timezone; ranges over 62 days are rejected.
+    Planned drafts stay inert until confirmed for publishing.
+    """
     start_date = _validate_date(start_date, "--start-date")
     end_date = _validate_date(end_date, "--end-date")
+    validate_queue_dates(start_date, end_date)
     client, console, cfg = _get_client_and_console(api_key, quiet, debug=debug)
     use_text = _resolve_text_mode(use_text, use_json, cfg)
     with client:
@@ -1438,9 +1454,19 @@ def queue(start_date, end_date, api_key, account, use_text, use_json, quiet, deb
 def queue_schedule(action, rules, api_key, account, use_text, use_json, quiet, debug):
     """Get or set queue schedule rules.
 
-    GET: view current posting times.
+    GET: view current posting times; the server initializes defaults if absent.
     SET: replace schedule rules. Rules format: [{"h":9,"m":30,"days":["mon","wed","fri"]}]
+    h=0..23, m=0..59; duplicate day/time pairs are rejected. [] clears the schedule.
     """
+    parsed = None
+    if action == "set":
+        if rules is None:
+            raise TypefullyError("Missing --rules for set action", code="invalid_input")
+        try:
+            parsed = json.loads(rules)
+        except ValueError:
+            raise TypefullyError("Invalid JSON in --rules", code="invalid_input")
+        validate_queue_rules(parsed)
     client, console, cfg = _get_client_and_console(api_key, quiet, debug=debug)
     use_text = _resolve_text_mode(use_text, use_json, cfg)
     with client:
@@ -1449,20 +1475,6 @@ def queue_schedule(action, rules, api_key, account, use_text, use_json, quiet, d
             data = client.get_queue_schedule(ssid)
             _output(data, use_text, fmt.print_queue_schedule)
         else:
-            if not rules:
-                raise TypefullyError(
-                    "Missing --rules for set action",
-                    code="invalid_input",
-                    hint='Example: --rules \'[{"h":9,"m":30,"days":["mon","wed","fri"]}]\'',
-                )
-            try:
-                parsed = json.loads(rules)
-            except json.JSONDecodeError:
-                raise TypefullyError(
-                    "Invalid JSON in --rules",
-                    code="invalid_input",
-                    hint="Rules must be a valid JSON array",
-                )
             data = client.set_queue_schedule(ssid, parsed)
             _output(data, use_text, fmt.print_queue_schedule)
 
@@ -1494,8 +1506,8 @@ def comments():
 
 @comments.command("list")
 @click.argument("draft_id")
-@click.option("--platform", default=None)
-@click.option("--status", "comment_status", default="unresolved")
+@click.option("--platform", default=None, help="x, linkedin, mastodon, threads, bluesky, substack, x_article")
+@click.option("--status", "comment_status", default="unresolved", help="unresolved (default), resolved, all")
 @click.option("-n", "--limit", default=10, type=int)
 @click.option("--offset", default=0, type=click.IntRange(min=0))
 @shared_options
@@ -1504,6 +1516,8 @@ def comments_list(draft_id, platform, comment_status, limit, offset,
                   api_key, account, use_text, use_json, quiet, debug):
     """List comment threads for a draft."""
     _validate_limit(limit)
+    validate_choice(platform, COMMENT_PLATFORMS, "--platform")
+    validate_choice(comment_status, ("unresolved", "resolved", "all"), "--status")
     client, console, cfg = _get_client_and_console(api_key, quiet, debug=debug)
     use_text = _resolve_text_mode(use_text, use_json, cfg)
     with client:
@@ -1518,23 +1532,26 @@ def comments_list(draft_id, platform, comment_status, limit, offset,
 
 @comments.command("create")
 @click.argument("draft_id")
-@click.option("--selected-text", required=True)
-@click.option("--text", "comment_text", required=True)
+@click.option("--selected-text", required=True, help="Exact anchor substring, 1..50000 characters")
+@click.option("--text", "comment_text", required=True, help="Comment body, 1..10000 characters")
 @click.option("--post-index", type=int, default=None)
-@click.option("--occurrence", type=int, default=None)
-@click.option("--platform", default=None)
-@shared_options
+@click.option("--occurrence", type=int, default=None, help="Zero-based match occurrence, 0..10000")
+@click.option("--platform", default=None, help="Required for multi-platform drafts; x_article omits post index")
+@shared_options(text_option="--human")
 @error_handler
 def comments_create(draft_id, selected_text, comment_text, post_index, occurrence, platform,
                     api_key, account, use_text, use_json, quiet, debug):
     """Create a review comment anchored to draft text."""
+    validate_choice(platform, COMMENT_PLATFORMS, "--platform")
+    validate_length(selected_text, 1, 50000, "--selected-text")
+    validate_length(comment_text, 1, 10000, "--text")
     if platform == "x_article":
         if post_index not in (None, 0):
             raise TypefullyError("--post-index must be 0 for x_article", code="invalid_input")
     elif post_index is None or post_index < 0:
         raise TypefullyError("--post-index must be a non-negative integer", code="invalid_input")
-    if occurrence is not None and occurrence < 0:
-        raise TypefullyError("--occurrence must be a non-negative integer", code="invalid_input")
+    if occurrence is not None and not 0 <= occurrence <= 10000:
+        raise TypefullyError("--occurrence must be in 0..10000", code="invalid_input")
     payload: dict[str, Any] = {"selected_text": selected_text, "text": comment_text}
     if platform:
         payload["platform"] = platform
@@ -1553,10 +1570,12 @@ def comments_create(draft_id, selected_text, comment_text, post_index, occurrenc
 @click.argument("draft_id")
 @click.argument("thread_id")
 @click.option("--text", "comment_text", required=True)
-@shared_options
+@shared_options(text_option="--human")
 @error_handler
 def comments_reply(draft_id, thread_id, comment_text, api_key, account, use_text, use_json, quiet, debug):
     """Reply to a review comment thread."""
+    validate_uuid(thread_id, "Thread ID")
+    validate_length(comment_text, 1, 10000, "--text")
     client, console, cfg = _get_client_and_console(api_key, quiet, debug=debug)
     use_text = _resolve_text_mode(use_text, use_json, cfg)
     with client:
@@ -1571,6 +1590,7 @@ def comments_reply(draft_id, thread_id, comment_text, api_key, account, use_text
 @error_handler
 def comments_resolve(draft_id, thread_id, api_key, account, use_text, use_json, quiet, debug):
     """Resolve a review comment thread."""
+    validate_uuid(thread_id, "Thread ID")
     client, console, cfg = _get_client_and_console(api_key, quiet, debug=debug)
     use_text = _resolve_text_mode(use_text, use_json, cfg)
     with client:
@@ -1583,11 +1603,14 @@ def comments_resolve(draft_id, thread_id, api_key, account, use_text, use_json, 
 @click.argument("thread_id")
 @click.argument("comment_id")
 @click.option("--text", "comment_text", required=True)
-@shared_options
+@shared_options(text_option="--human")
 @error_handler
 def comments_update(draft_id, thread_id, comment_id, comment_text,
                     api_key, account, use_text, use_json, quiet, debug):
     """Update a comment written by current user."""
+    validate_uuid(thread_id, "Thread ID")
+    validate_uuid(comment_id, "Comment ID")
+    validate_length(comment_text, 1, 10000, "--text")
     client, console, cfg = _get_client_and_console(api_key, quiet, debug=debug)
     use_text = _resolve_text_mode(use_text, use_json, cfg)
     with client:
@@ -1603,6 +1626,9 @@ def comments_update(draft_id, thread_id, comment_id, comment_text,
 @error_handler
 def comments_delete(draft_id, thread_id, comment_id, api_key, account, use_text, use_json, quiet, debug):
     """Delete a comment, or entire comment thread when comment ID is omitted."""
+    validate_uuid(thread_id, "Thread ID")
+    if comment_id is not None:
+        validate_uuid(comment_id, "Comment ID")
     client, console, cfg = _get_client_and_console(api_key, quiet, debug=debug)
     use_text = _resolve_text_mode(use_text, use_json, cfg)
     with client:
@@ -1622,7 +1648,7 @@ def comments_delete(draft_id, thread_id, comment_id, api_key, account, use_text,
 @shared_options
 @error_handler
 def publish(draft_id, api_key, account, use_text, use_json, quiet, debug):
-    """Publish a draft immediately."""
+    """Start publishing immediately; use get to poll publish_state until finished."""
     client, console, cfg = _get_client_and_console(api_key, quiet, debug=debug)
     use_text = _resolve_text_mode(use_text, use_json, cfg)
     with client:
@@ -1681,6 +1707,7 @@ def plan_cmd(draft_id, plan_time, api_key, account, use_text, use_json, quiet, d
 @error_handler
 def media_status(media_id, api_key, account, use_text, use_json, quiet, debug):
     """Check the processing status of an uploaded media file."""
+    validate_uuid(media_id, "Media ID")
     client, console, cfg = _get_client_and_console(api_key, quiet, debug=debug)
     use_text = _resolve_text_mode(use_text, use_json, cfg)
     with client:
@@ -1723,6 +1750,7 @@ def _build_draft_payload(
     target_platforms = platforms or ["x"]
     quote_platform = _quote_platform(quote_post_url, target_platforms) if quote_post_url else None
     if "x_article" in target_platforms:
+        validate_article_options(locals())
         if len(target_platforms) != 1 or not content_markdown or posts_text:
             raise TypefullyError(
                 "x_article requires only --platform x_article and --content-markdown",

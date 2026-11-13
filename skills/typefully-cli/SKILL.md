@@ -6,7 +6,7 @@ description: Use this repository's Python Typefully CLI to inspect accounts and 
 # Typefully CLI
 
 Run `typefully --help` and the selected command's `--help` before assuming flags.
-This skill describes the unpublished 0.5.0 candidate; older installed
+This skill describes the 0.5.1 release candidate; older installed
 packages may lack these commands or telemetry controls. Do not treat repository documentation as proof
 that the installed package has been upgraded.
 

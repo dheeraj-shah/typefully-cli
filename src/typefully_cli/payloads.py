@@ -10,6 +10,7 @@ import click
 
 from typefully_cli.console import write_success
 from typefully_cli.exceptions import TypefullyError
+from typefully_cli.validation import validate_uuid
 
 
 SCHEMA_FILE = Path(__file__).with_name("request-schemas.json")
@@ -101,11 +102,11 @@ def validate_payload(payload, action):
     _validate(payload, schemas[root], schemas)
     if payload.get("publish_at") is not None and payload.get("plan_at") is not None:
         _invalid("publish_at and plan_at are mutually exclusive")
-    platforms = payload.get("platforms", {})
-    if "x_article" in platforms:
-        if len(platforms) != 1:
+    platforms = payload.get("platforms") or {}
+    article = platforms.get("x_article")
+    if article is not None:
+        if sum(value is not None for value in platforms.values()) != 1:
             _invalid("X Article must be a standalone platform payload")
-        article = platforms["x_article"]
         if action == "create" and not article.get("content_markdown"):
             _invalid("X Article creation requires content_markdown")
     if not payload:
@@ -161,7 +162,7 @@ def register_commands(cli):
             _invalid("Request file must contain valid JSON")
         validate_payload(payload, action)
         if validate_only:
-            write_success({"valid": True, "schema_date": "2026-10-29"})
+            write_success({"valid": True, "schema_date": json.loads(SCHEMA_FILE.read_text())["retrieved"]})
             return
         client, console, cfg = helpers._get_client_and_console(api_key, quiet, debug=debug)
         with client:
@@ -186,8 +187,7 @@ def register_commands(cli):
             _invalid("Choose exactly one of --alt-text or --clear-alt-text")
         if alt_text is not None and len(alt_text) > 1000:
             _invalid("Alt text must be at most 1000 characters")
-        if not media_id or any(c in media_id for c in "/?#"):
-            _invalid("Invalid media ID")
+        validate_uuid(media_id, "Media ID")
         client, console, cfg = helpers._get_client_and_console(api_key, quiet, debug=debug)
         with client:
             ssid = helpers._resolve_account_id(client, account, cfg)

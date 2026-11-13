@@ -1,5 +1,12 @@
 # Typefully upstream parity baseline
 
+Latest review: **2026-11-12**, release 0.5.0 / main `b2d57487`.
+See the [current complete operation/field matrix, fixes, source baseline and limits](upstream-parity-2026-11-12.md).
+The [November 5 baseline](upstream-parity-2026-11-05.md) remains historical evidence.
+It distinguishes the freshly verified public request snapshot from historical
+authenticated MCP evidence. The sections below
+are the **historical October 29 baseline**, not a fresh authenticated check.
+
 Reviewed 2026-10-29 against CLI 0.2.1 / main `82fd5948`.
 
 ## Sources and limits

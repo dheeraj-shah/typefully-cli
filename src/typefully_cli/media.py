@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import os
 import re
+import time
 
 from typefully_cli.client import TypefullyClient
 from typefully_cli.console import Console
@@ -25,6 +26,8 @@ def _sanitize_filename(name: str) -> str:
             hint=f"Supported: {', '.join(sorted(ALLOWED_EXTENSIONS))}",
         )
     safe_stem = SAFE_NAME_RE.sub("_", stem) or "upload"
+    # The public API caps the complete filename at 255 characters.
+    safe_stem = safe_stem[:254 - len(ext)]
     return f"{safe_stem}.{ext}"
 
 
@@ -56,18 +59,29 @@ def upload_media(
 
     # Step 3: Poll for processing
     console.status("Processing...")
-    max_polls = timeout // 2
+    max_polls = max(1, (timeout + 1) // 2)
+    deadline = time.monotonic() + timeout
     with console.progress("Processing media...") as progress:
         task = progress.add_task("Processing...", total=max_polls)
         data = {}
         for _ in range(max_polls):
-            import time
-
-            time.sleep(2)
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                break
+            time.sleep(min(2, remaining))
             progress.advance(task)
             data = client.get_media(social_set_id, media_id)
             status = data.get("status", "unknown")
             if status in ("ready", "completed"):
                 return {"media_id": media_id, "status": "ready"}
+            if status == "failed":
+                raise MediaUploadError(
+                    f"Media {media_id} processing failed: {data.get('error_reason') or 'unknown reason'}",
+                    hint="Check the file format and request a new upload URL before retrying",
+                )
 
-    return {"media_id": media_id, "status": data.get("status", "unknown")}
+    raise MediaUploadError(
+        f"Media {media_id} is still {data.get('status', 'unknown')} after {timeout}s",
+        code="media_processing_timeout",
+        hint=f"Processing may continue; poll with: typefully media-status {media_id}",
+    )

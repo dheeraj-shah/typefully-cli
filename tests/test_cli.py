@@ -624,6 +624,7 @@ def _make_client_mock(MockClient):
     inst.__exit__ = MagicMock(return_value=False)
     inst.get_social_sets.return_value = [{"id": 1, "username": "TestBrand"}]
     inst.resolve_account.return_value = 1
+    inst.resolve_tag_slugs.side_effect = lambda _sid, names: {name: name for name in names}
     return inst
 
 
@@ -664,7 +665,8 @@ class TestQueue:
             with patch("typefully_cli.cli.TypefullyClient") as MockClient:
                 client = _make_client_mock(MockClient)
                 client.get_queue.return_value = mock_data
-                result = runner.invoke(cli, ["queue", "--json"])
+                result = runner.invoke(cli, ["queue", "--start-date", "2026-01-01",
+                                             "--end-date", "2026-01-02", "--json"])
         assert result.exit_code == 0
         data = json.loads(result.output)
         assert data["ok"] is True
@@ -778,7 +780,7 @@ class TestMediaStatus:
             with patch("typefully_cli.cli.TypefullyClient") as MockClient:
                 client = _make_client_mock(MockClient)
                 client.get_media.return_value = mock_data
-                result = runner.invoke(cli, ["media-status", "abc", "--json"])
+                result = runner.invoke(cli, ["media-status", "550e8400-e29b-41d4-a716-446655440000", "--json"])
         assert result.exit_code == 0
         data = json.loads(result.output)
         assert data["ok"] is True

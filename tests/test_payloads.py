@@ -30,6 +30,23 @@ def test_null_false_arrays_and_comment_markers_preserved():
     assert validate_payload(body, "update") is body
 
 
+@pytest.mark.parametrize("body,action", [
+    ({"platforms": None, "draft_title": "Keep content"}, "update"),
+    ({"platforms": {"x_article": None}}, "create"),
+    ({"platforms": {"x_article": None}}, "update"),
+    ({"platforms": {"x_article": None, "x": {"enabled": True, "posts": [{"text": "hi"}]}}}, "create"),
+    ({"platforms": {"x_article": {"content_markdown": "# Title\nBody"}, "x": None}}, "create"),
+])
+def test_nullable_platforms_preserved_without_internal_errors(body, action):
+    assert validate_payload(body, action) is body
+    with patch("typefully_cli.cli._get_client_and_console") as get_client:
+        result = CliRunner().invoke(cli, ["draft-payload", action, "--file", "-", "--validate-only",
+                                         *(["--draft-id", "1"] if action == "update" else [])],
+                                    input=json.dumps(body))
+    assert result.exit_code == 0, result.output
+    get_client.assert_not_called()
+
+
 @pytest.mark.parametrize(
     "body",
     [
@@ -119,9 +136,9 @@ def test_media_update(args, expected):
     with patch(
         "typefully_cli.cli._get_client_and_console", return_value=(client, MagicMock(), MagicMock())
     ):
-        result = CliRunner().invoke(cli, ["media-update", "abc", *args])
+        result = CliRunner().invoke(cli, ["media-update", "550e8400-e29b-41d4-a716-446655440000", *args])
     assert result.exit_code == 0, result.output
-    client.update_media.assert_called_once_with(7, "abc", expected)
+    client.update_media.assert_called_once_with(7, "550e8400-e29b-41d4-a716-446655440000", expected)
 
 
 def test_media_client_exact_routes():

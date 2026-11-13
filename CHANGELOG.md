@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.5.1 (2026-11-13)
+
+- Close verified public API behavior gaps in queues, asynchronous publication, X Articles, media processing and review-comment validation.
+- Resolve tag display names to authoritative server slugs with pagination and safe failure handling.
+- Preserve bounded redacted upstream diagnostics and reject incompatible article options before requests.
+- Respect the configured timezone when creating planned drafts; handle nullable previews, dates and platform responses safely.
+- Monitor embedded API schemas alongside visible docs and document remaining unverified MCP/legacy boundaries.
+- Retain Python 3.9–3.13, existing output contracts and privacy controls; permit 0.5.1 in the anonymous collector version allowlist.
+
 ## 0.5.0 (2026-11-02)
 
 - Add one explicit default-no opt-in for ongoing sharing of public usernames/profile URLs from all API-accessible social sets, including managed/client accounts and profiles linked later.
