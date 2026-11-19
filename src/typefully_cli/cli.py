@@ -1496,6 +1496,100 @@ def linkedin_resolve(url, api_key, account, use_text, use_json, quiet, debug):
         _output(data, use_text, fmt.print_linkedin_resolve)
 
 
+# --- engagements ---
+
+
+@cli.group()
+def engagements():
+    """Manage drafts that quote and publish after another draft."""
+
+
+def _engagement_command(method, draft_id, args, api_key, account, use_text, use_json, quiet, debug):
+    client, _, cfg = _get_client_and_console(api_key, quiet, debug=debug)
+    use_text = _resolve_text_mode(use_text, use_json, cfg)
+    with client:
+        ssid = _resolve_account_id(client, account, cfg)
+        data = getattr(client, method)(ssid, draft_id, *args)
+        _output(data if data is not None else {"detached": args[0]}, use_text)
+
+
+@engagements.command("list")
+@click.argument("draft_id", type=int)
+@shared_options
+@error_handler
+def engagements_list(draft_id, api_key, account, use_text, use_json, quiet, debug):
+    """List engagements linked to a parent draft in the selected account."""
+    _engagement_command(
+        "list_engagements", draft_id, (), api_key, account, use_text, use_json, quiet, debug
+    )
+
+
+@engagements.command("parent")
+@click.argument("draft_id", type=int)
+@shared_options
+@error_handler
+def engagements_parent(draft_id, api_key, account, use_text, use_json, quiet, debug):
+    """Get the parent of an engagement draft in the selected account."""
+    _engagement_command(
+        "get_engagement_parent", draft_id, (), api_key, account, use_text, use_json, quiet, debug
+    )
+
+
+def _engagement_offset(seconds: int) -> int:
+    if not 0 <= seconds <= 31_536_000:
+        raise TypefullyError("Offset must be between 0 and 31536000 seconds", code="invalid_input")
+    return seconds
+
+
+@engagements.command("create")
+@click.argument("draft_id", type=int)
+@click.argument("engagement_id", type=int)
+@click.option("--offset-seconds", required=True, type=int, help="Delay after publication (0 to 31536000).")
+@shared_options
+@error_handler
+def engagements_create(draft_id, engagement_id, offset_seconds,
+                       api_key, account, use_text, use_json, quiet, debug):
+    """Attach an unpublished draft as a scheduled quote; may move it from another parent.
+
+    The selected account is the parent's. If the parent is already published,
+    the quote is scheduled for now plus the delay.
+    """
+    if draft_id == engagement_id:
+        raise TypefullyError("A draft cannot quote itself as an engagement", code="invalid_input")
+    _engagement_command(
+        "create_engagement", draft_id, (engagement_id, _engagement_offset(offset_seconds)),
+        api_key, account, use_text, use_json, quiet, debug,
+    )
+
+
+@engagements.command("update")
+@click.argument("draft_id", type=int)
+@click.argument("engagement_id", type=int)
+@click.option("--offset-seconds", required=True, type=int, help="New delay (0 to 31536000 seconds).")
+@shared_options
+@error_handler
+def engagements_update(draft_id, engagement_id, offset_seconds,
+                       api_key, account, use_text, use_json, quiet, debug):
+    """Change a quote's delay before its parent draft publishes."""
+    _engagement_command(
+        "update_engagement", draft_id, (engagement_id, _engagement_offset(offset_seconds)),
+        api_key, account, use_text, use_json, quiet, debug,
+    )
+
+
+@engagements.command("detach")
+@click.argument("draft_id", type=int)
+@click.argument("engagement_id", type=int)
+@shared_options
+@error_handler
+def engagements_detach(draft_id, engagement_id, api_key, account, use_text, use_json, quiet, debug):
+    """Detach a quote from its parent without deleting the engagement draft."""
+    _engagement_command(
+        "detach_engagement", draft_id, (engagement_id,),
+        api_key, account, use_text, use_json, quiet, debug,
+    )
+
+
 # --- comments ---
 
 

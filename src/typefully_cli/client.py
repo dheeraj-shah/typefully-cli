@@ -469,6 +469,32 @@ class TypefullyClient:
 
     # --- Draft comments ---
 
+    def list_engagements(self, social_set_id: int, draft_id: int) -> dict:
+        path = f"/social-sets/{social_set_id}/drafts/{draft_id}/engagements"
+        return self._request("GET", path) or {}
+
+    def get_engagement_parent(self, social_set_id: int, draft_id: int) -> dict:
+        path = f"/social-sets/{social_set_id}/drafts/{draft_id}/parent"
+        return self._request("GET", path) or {}
+
+    def create_engagement(
+        self, social_set_id: int, draft_id: int, engagement_id: int, offset_seconds: int
+    ) -> dict:
+        path = f"/social-sets/{social_set_id}/drafts/{draft_id}/engagements"
+        payload = {"draft_id": engagement_id, "offset_seconds": offset_seconds,
+                   "engagement_kind": "quote"}
+        return self._request("POST", path, json=payload) or {}
+
+    def update_engagement(
+        self, social_set_id: int, draft_id: int, engagement_id: int, offset_seconds: int
+    ) -> dict:
+        path = f"/social-sets/{social_set_id}/drafts/{draft_id}/engagements/{engagement_id}"
+        return self._request("PATCH", path, json={"offset_seconds": offset_seconds}) or {}
+
+    def detach_engagement(self, social_set_id: int, draft_id: int, engagement_id: int) -> None:
+        path = f"/social-sets/{social_set_id}/drafts/{draft_id}/engagements/{engagement_id}"
+        self._request("DELETE", path)
+
     def list_comment_threads(self, social_set_id: int, draft_id: str, **params: object) -> dict:
         return (
             self._request(
