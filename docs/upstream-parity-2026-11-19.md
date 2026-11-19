@@ -58,7 +58,6 @@ reviewed routing; it does not mean live all-account or all-platform execution.
 | PATCH `D/comment-threads/{thread}/comments/{comment}` | `comments update` | Both UUIDs and body validated; authorship remains server-side. |
 | DELETE `D/comment-threads/{thread}/comments/{comment}` | `comments delete ID THREAD COMMENT` | Both UUIDs validated. Deleting the root comment can delete its whole thread. |
 | DELETE `D/comment-threads/{thread}` | `comments delete ID THREAD` | UUID validated; whole-thread deletion removes anchors. |
-
 | GET `D/engagements` | `engagements list` | Parent READ access; preserves the documented `results` list envelope (no pagination parameters documented). |
 | POST `D/engagements` | `engagements create` | Parent READ and quote-account PUBLISH. Required integer quote draft ID, seconds 0..31536000, and kind `quote`. Attaches or reparents an existing unpublished draft. Published parent schedules it from now rather than the parent's original publication date. |
 | GET `D/parent` | `engagements parent` | Quote-account READ; returns parent status, date, social set and first-post previews even without access to the parent's social set. |
@@ -109,8 +108,8 @@ must round-trip; force-overwrite is explicit, never an automatic error recovery.
   plus MCP-only `confirm_publish` for immediate publishing. Never send this
   MCP-only field to REST. No new MCP-only feature was verified; current
   authenticated inventory remains unavailable.
-- Polls are product features, but no writable poll contract is in the unchanged
-  current public schema. No guessed fields or endpoints were added.
+- Polls are product features, but no writable poll contract is in the
+  current public reference. No guessed fields or endpoints were added.
 - Webhook events/signatures/retries are documented, with no subscription
   management operations in this schema. Existing analytics/follower analytics
   and draft `content_filter` routes remain preserved compatibility surfaces with
@@ -133,7 +132,9 @@ within the same social set. A failed parent platform post cannot be quoted on th
 platform. Deleting a parent detaches rather than deletes its engagements. Draft response
 fields `parent_draft_id`, `parent_social_set_id`, `parent_offset_seconds`,
 `engagement_kind` and `follows_parent` pass through the CLI's existing JSON output.
-They are not added as writable draft fields. Ordinary `--quote-post-url` is unchanged.
+They are not added as writable draft fields. PATCH and DELETE take the documented
+`engagement_id` path parameter; response examples expose `draft_id` and do not explicitly
+state whether those IDs differ. Offline tests check the request shape, not live ID resolution. Ordinary `--quote-post-url` is unchanged.
 
 ## Monitor and tests
 
