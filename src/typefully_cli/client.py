@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 import sys
 import time
 
@@ -9,6 +10,24 @@ import httpx
 
 from typefully_cli.exceptions import AccountError, APIError, TypefullyError
 from typefully_cli.validation import validate_length
+
+
+def _rate_limit_info(headers: httpx.Headers) -> dict:
+    """Retain only documented, bounded diagnostics; never copy raw headers."""
+    info = {}
+    for scope, header in (("user", "User"), ("social_set", "SocialSet")):
+        values = {}
+        for suffix, name in (("Limit", "limit"), ("Remaining", "remaining"), ("Reset", "reset")):
+            value = headers.get(f"X-RateLimit-{header}-{suffix}", "").strip()
+            if re.fullmatch(r"[0-9]{1,18}", value):
+                values[name] = int(value)
+        if scope == "social_set":
+            resource = headers.get("X-RateLimit-SocialSet-Resource", "").strip()
+            if re.fullmatch(r"[a-z][a-z0-9_-]{0,24}\.[a-z][a-z0-9_-]{0,24}", resource):
+                values["resource"] = resource
+        if values:
+            info[scope] = values
+    return info
 
 
 class TypefullyClient:
@@ -54,7 +73,8 @@ class TypefullyClient:
         if resp.status_code == 204:
             return None
         if not resp.is_success:
-            raise APIError(resp.status_code, resp.text)
+            rate_limit = _rate_limit_info(resp.headers) if resp.status_code == 429 else None
+            raise APIError(resp.status_code, resp.text, rate_limit=rate_limit)
         try:
             return resp.json()
         except (ValueError, KeyError):

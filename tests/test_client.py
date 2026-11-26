@@ -215,3 +215,54 @@ class TestOfficialMcpEndpoints:
         client._request.assert_called_once_with(
             "GET", "/social-sets/1/drafts/draft", params={"exclude_comment_markers": "true"}
         )
+
+
+
+@pytest.mark.parametrize(
+    ("status", "upstream", "rate_limit"),
+    [
+        (429, {
+            "X-RateLimit-User-Limit": "60",
+            "X-RateLimit-User-Remaining": "0",
+            "X-RateLimit-User-Reset": "1795670000",
+            "X-RateLimit-SocialSet-Limit": "10",
+            "X-RateLimit-SocialSet-Resource": "drafts.create",
+            "X-RateLimit-SocialSet-Remaining": "0",
+            "X-RateLimit-SocialSet-Reset": "1795670020",
+            "Authorization": "Bearer do-not-return-me",
+        }, {
+            "user": {"limit": 60, "remaining": 0, "reset": 1795670000},
+            "social_set": {"limit": 10, "remaining": 0, "reset": 1795670020,
+                           "resource": "drafts.create"},
+        }),
+        (429, {
+            "X-RateLimit-User-Limit": "9" * 30,
+            "X-RateLimit-User-Remaining": "-1",
+            "X-RateLimit-SocialSet-Resource": "Bearer some-private-value",
+        }, None),
+        (429, {}, None),
+        (403, {"X-RateLimit-User-Remaining": "0"}, None),
+    ],
+)
+def test_rate_limit_diagnostics_are_additive_bounded_and_never_retry(status, upstream, rate_limit):
+    requests = []
+
+    def handler(request):
+        requests.append(request)
+        return httpx.Response(status, headers=upstream, json={"detail": "Blocked"})
+
+    with TypefullyClient(api_key="offline") as client:
+        client._client.close()
+        client._client = httpx.Client(
+            base_url=client.BASE_URL, transport=httpx.MockTransport(handler)
+        )
+        with pytest.raises(APIError) as e:
+            client._request("POST", "/social-sets/1/drafts", json={"text": "mock"})
+    report = e.value.to_dict()
+    assert len(requests) == 1
+    assert e.value.user_message == f"API error (HTTP {status})"
+    assert report["code"] == "api_error" and report["status"] == status
+    assert report["upstream"] == {"detail": "Blocked"}
+    assert report.get("rate_limit") == rate_limit
+    assert ("rate_limit" in report) == (rate_limit is not None)
+    assert "do-not-return-me" not in str(report) and "some-private-value" not in str(report)

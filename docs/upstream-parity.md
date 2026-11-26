@@ -1,7 +1,7 @@
 # Typefully upstream parity baseline
 
 Latest review: **2026-11-19**, release 0.5.1 / main `65780608`, plus proposed engagement support.
-See the [current operation matrix, new engagement contract, and limits](upstream-parity-2026-11-19.md).
+See the [current operation matrix, new engagement contract, and limits](upstream-parity-2026-11-26.md).
 The [November 5 baseline](upstream-parity-2026-11-05.md) remains historical evidence.
 It distinguishes the freshly verified public request snapshot from historical
 authenticated MCP evidence. The sections below

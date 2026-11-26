@@ -148,12 +148,19 @@ typefully config set output_format json
 |------|---------|
 | `auth_failed` | No API key found in flag, env, config, or 1Password |
 | `no_account` | No account specified or account not found |
-| `api_error` | Non-2xx response from Typefully API |
+| `api_error` | Non-2xx response from Typefully API; HTTP 429 may include `error.rate_limit` |
 | `invalid_input` | Bad date format, limit out of range, incompatible article options |
 | `tag_resolution_failed` | A tag could not be mapped to an authoritative slug; no draft request was sent |
 | `batch_parse_error` | Malformed batch file |
 | `media_upload_error` | Upload failed or unsupported format |
 | `media_processing_timeout` | Upload succeeded but processing did not finish before `--timeout`; poll the media ID in the hint |
+
+The `--media` option accepts up to 20 IDs on one post. Individual
+platforms can impose lower limits or restrict media combinations.
+
+For HTTP 429 errors, `error.rate_limit` can include the documented `user`
+and `social_set` budgets. `reset` is Unix time in seconds. Fields are omitted
+when the headers are absent or unusable; the CLI does not retry the request.
 
 ### Partial failure (batch/delete)
 

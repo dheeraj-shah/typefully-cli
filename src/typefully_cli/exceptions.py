@@ -129,7 +129,10 @@ class APIError(TypefullyError):
 
     code = "api_error"
 
-    def __init__(self, status_code: int, body: str, *, hint: str = ""):
+    def __init__(
+        self, status_code: int, body: str, *, hint: str = "", rate_limit: dict | None = None
+    ):
+        self.rate_limit = rate_limit
         self.status_code = status_code
         self.upstream, self.upstream_truncated, redacted = _upstream_diagnostics(body)
         preview = _error_preview(body, self.upstream, self.upstream_truncated, redacted)
@@ -143,6 +146,8 @@ class APIError(TypefullyError):
     def to_dict(self) -> dict:
         d = super().to_dict()
         d["status"] = self.status_code
+        if self.rate_limit:
+            d["rate_limit"] = self.rate_limit
         if self.upstream is not None:
             d["upstream"] = self.upstream
         if self.upstream_truncated:

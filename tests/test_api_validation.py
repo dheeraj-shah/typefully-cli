@@ -228,3 +228,51 @@ def test_valid_queue_dates_preserve_response_envelope():
     assert result.exit_code == 0
     assert json.loads(result.stdout) == {"ok": True, "data": data}
     client.get_queue.assert_called_once_with(7, start_date="2026-11-05", end_date="2026-11-05")
+
+
+
+@pytest.mark.parametrize("command", [["draft", "hi"], ["thread", "hi", "there"], ["update", "3"]])
+def test_media_cap_fails_before_auth(command):
+    args = command + ["--media", ",".join(f"id-{i}" for i in range(21)), "--json"]
+    with patch("typefully_cli.cli._get_client_and_console") as get_client:
+        result = runner().invoke(cli, args)
+    assert result.exit_code == 1, result.output
+    assert "at most 20 media IDs" in result.stderr
+    get_client.assert_not_called()
+
+
+def test_draft_keeps_twenty_media_ids_in_order():
+    from typefully_cli.config import Config
+
+    ids = [f"id-{i}" for i in range(20)]
+    client = MagicMock()
+    client.__enter__.return_value = client
+    client.resolve_account.return_value = 3
+    client.create_draft.return_value = {"id": 1}
+    with patch("typefully_cli.cli._get_client_and_console",
+               return_value=(client, MagicMock(), Config())):
+        result = runner().invoke(cli, ["draft", "hi", "--media", ",".join(ids), "--json"])
+    assert result.exit_code == 0, result.output
+    assert client.create_draft.call_args.args[1]["platforms"]["x"]["posts"][0]["media_ids"] == ids
+
+
+def test_batch_keeps_other_entries_and_skips_invalid_entries_tags(tmp_path):
+    from typefully_cli.config import Config
+
+    ids = ",".join(f"id-{i}" for i in range(21))
+    file = tmp_path / "drafts.txt"
+    file.write_text(f"media: {ids}\ntag: invalid\n\nFirst\n---\nSecond\n")
+    client = MagicMock()
+    client.__enter__.return_value = client
+    client.resolve_account.return_value = 3
+    client.create_draft.return_value = {"id": 1}
+    with patch("typefully_cli.cli._get_client_and_console",
+               return_value=(client, MagicMock(), Config())):
+        result = runner().invoke(cli, ["batch", str(file), "--json"])
+    assert result.exit_code == 3, result.output
+    data = json.loads(result.stdout)["data"]
+    assert data["errors"][0]["index"] == 0
+    assert "at most 20" in data["errors"][0]["message"]
+    assert len(data["created"]) == 1
+    client.resolve_tag_slugs.assert_not_called()
+    client.create_draft.assert_called_once()

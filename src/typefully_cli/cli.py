@@ -30,7 +30,8 @@ from typefully_cli.profile_sharing import maybe_sync_profiles
 from typefully_cli.validation import (
     COMMENT_PLATFORMS, DRAFT_ORDERS, DRAFT_STATUSES,
     validate_article_input, validate_article_options,
-    validate_choice, validate_length, validate_queue_dates, validate_queue_rules, validate_uuid,
+    validate_choice, validate_length, validate_media_count, validate_queue_dates,
+    validate_queue_rules, validate_uuid,
 )
 
 
@@ -636,7 +637,7 @@ def recent(limit, since, until_date, output_format, api_key, account, use_text, 
               help="ISO datetime or 'next'; naive times use configured timezone; calendar only, does not publish")
 @click.option("--tag", "tags", multiple=True, help="Tag name or existing slug (repeatable; names auto-created)")
 @click.option("--title", default=None)
-@click.option("--media", default=None, help="Comma-separated media IDs")
+@click.option("--media", default=None, help="Up to 20 comma-separated media IDs")
 @click.option("--share/--no-share", default=False)
 @click.option("--reply-to", default=None, help="URL of tweet to reply to")
 @click.option("--scratchpad", default=None, help="Internal notes (not published)")
@@ -674,6 +675,8 @@ def draft(
 ):
     """Create a draft post. X Articles reject post-only options."""
     validate_article_input(platform, content_markdown, cover_media_id, locals())
+    if media:
+        validate_media_count(media.split(","))
     platform_fields = dict(
         reply_settings=reply_settings, subscribers_only=subscribers_only,
         share_with_followers=share_with_followers,
@@ -733,7 +736,7 @@ def draft(
 @click.option("--schedule", default=None, help="ISO datetime, 'next', or 'now'")
 @click.option("--tag", "tags", multiple=True, help="Tag name or existing slug (repeatable; names auto-created)")
 @click.option("--title", default=None)
-@click.option("--media", default=None, help="Comma-separated media IDs (first post)")
+@click.option("--media", default=None, help="Up to 20 comma-separated media IDs (first post)")
 @click.option("--share/--no-share", default=False)
 @click.option("--reply-to", default=None)
 @click.option("--scratchpad", default=None)
@@ -768,6 +771,8 @@ def thread(
 ):
     """Create a multi-post thread. Provide 2+ posts as separate arguments."""
     validate_article_input(platform, None, None, locals())
+    if media:
+        validate_media_count(media.split(","))
     platform_fields = dict(
         reply_settings=reply_settings, subscribers_only=subscribers_only,
         share_with_followers=share_with_followers,
@@ -885,7 +890,7 @@ def open_draft(draft_id, api_key, account, use_text, use_json, quiet, debug):
 @click.option("--scratchpad", default=None)
 @click.option("--auto-retweet/--no-auto-retweet", default=None)
 @click.option("--auto-plug/--no-auto-plug", default=None)
-@click.option("--media", default=None)
+@click.option("--media", default=None, help="Up to 20 comma-separated media IDs")
 @click.option("--append", "append_posts", is_flag=True,
               help="Append posts to existing thread instead of replacing")
 @click.option("--platform", default=None, help="Comma-separated target platforms")
@@ -915,6 +920,8 @@ def update(
 ):
     """Update a draft; X Articles reject post-only text/media/disclosure options."""
     validate_article_input(platform, content_markdown, cover_media_id, locals())
+    if media:
+        validate_media_count([part for part in media.split(",") if part.strip()])
     platform_fields = dict(
         reply_settings=reply_settings, subscribers_only=subscribers_only,
         share_with_followers=share_with_followers,
@@ -1310,20 +1317,30 @@ def batch(file_path, schedule, tags, share, dry_run, output_file, api_key, accou
             write_success(result)
         return
 
+    invalid_media = {}
+    for i, entry in enumerate(entries):
+        try:
+            validate_media_count(entry.media_ids)
+        except TypefullyError as error:
+            invalid_media[i] = str(error)
+
     client, console, cfg = _get_client_and_console(api_key, quiet, debug=debug)
     with client:
         ssid = _resolve_account_id(client, account, cfg)
 
-        # Tag preflight
-        all_tags = set()
-        for e in entries:
-            all_tags.update(e.tags)
+        # Tags for locally invalid entries must not trigger upstream writes.
+        all_tags = {name for i, e in enumerate(entries) if i not in invalid_media for name in e.tags}
         tag_map = client.resolve_tag_slugs(ssid, sorted(all_tags)) if all_tags else {}
 
         created: list[dict] = []
         errors: list[dict] = []
 
         for i, entry in enumerate(entries):
+            if i in invalid_media:
+                errors.append({
+                    "index": i, "message": invalid_media[i], "preview": entry.posts[0][:50],
+                })
+                continue
             if i > 0:
                 client.rate_delay()
 
