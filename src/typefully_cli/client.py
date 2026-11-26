@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 import sys
 import time
 
@@ -9,6 +10,24 @@ import httpx
 
 from typefully_cli.exceptions import AccountError, APIError, TypefullyError
 from typefully_cli.validation import validate_length
+
+
+def _rate_limit_info(headers: httpx.Headers) -> dict:
+    """Retain only documented, bounded diagnostics; never copy raw headers."""
+    info = {}
+    for scope, header in (("user", "User"), ("social_set", "SocialSet")):
+        values = {}
+        for suffix, name in (("Limit", "limit"), ("Remaining", "remaining"), ("Reset", "reset")):
+            value = headers.get(f"X-RateLimit-{header}-{suffix}", "").strip()
+            if re.fullmatch(r"[0-9]{1,18}", value):
+                values[name] = int(value)
+        if scope == "social_set":
+            resource = headers.get("X-RateLimit-SocialSet-Resource", "").strip()
+            if re.fullmatch(r"[a-z][a-z0-9_-]{0,24}\.[a-z][a-z0-9_-]{0,24}", resource):
+                values["resource"] = resource
+        if values:
+            info[scope] = values
+    return info
 
 
 class TypefullyClient:
@@ -54,7 +73,8 @@ class TypefullyClient:
         if resp.status_code == 204:
             return None
         if not resp.is_success:
-            raise APIError(resp.status_code, resp.text)
+            rate_limit = _rate_limit_info(resp.headers) if resp.status_code == 429 else None
+            raise APIError(resp.status_code, resp.text, rate_limit=rate_limit)
         try:
             return resp.json()
         except (ValueError, KeyError):
@@ -468,6 +488,32 @@ class TypefullyClient:
         )
 
     # --- Draft comments ---
+
+    def list_engagements(self, social_set_id: int, draft_id: int) -> dict:
+        path = f"/social-sets/{social_set_id}/drafts/{draft_id}/engagements"
+        return self._request("GET", path) or {}
+
+    def get_engagement_parent(self, social_set_id: int, draft_id: int) -> dict:
+        path = f"/social-sets/{social_set_id}/drafts/{draft_id}/parent"
+        return self._request("GET", path) or {}
+
+    def create_engagement(
+        self, social_set_id: int, draft_id: int, engagement_id: int, offset_seconds: int
+    ) -> dict:
+        path = f"/social-sets/{social_set_id}/drafts/{draft_id}/engagements"
+        payload = {"draft_id": engagement_id, "offset_seconds": offset_seconds,
+                   "engagement_kind": "quote"}
+        return self._request("POST", path, json=payload) or {}
+
+    def update_engagement(
+        self, social_set_id: int, draft_id: int, engagement_id: int, offset_seconds: int
+    ) -> dict:
+        path = f"/social-sets/{social_set_id}/drafts/{draft_id}/engagements/{engagement_id}"
+        return self._request("PATCH", path, json={"offset_seconds": offset_seconds}) or {}
+
+    def detach_engagement(self, social_set_id: int, draft_id: int, engagement_id: int) -> None:
+        path = f"/social-sets/{social_set_id}/drafts/{draft_id}/engagements/{engagement_id}"
+        self._request("DELETE", path)
 
     def list_comment_threads(self, social_set_id: int, draft_id: str, **params: object) -> dict:
         return (

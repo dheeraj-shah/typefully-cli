@@ -31,6 +31,14 @@ def validate_length(value, minimum, maximum, name):
         invalid(f"{name} must contain {minimum}..{maximum} characters")
 
 
+MEDIA_COUNT_ERROR = "A post can attach at most 20 media IDs"
+
+
+def validate_media_count(ids):
+    if len(ids) > 20:
+        invalid(MEDIA_COUNT_ERROR)
+
+
 def validate_uuid(value, name):
     try:
         UUID(value)

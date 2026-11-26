@@ -78,6 +78,27 @@ Another standalone draft
 
 Supported metadata: `tag`, `schedule`, `title`, `scratchpad`, `media` (comma-separated IDs). See [docs/batch-format.md](docs/batch-format.md) for the full spec.
 
+## Scheduled quotes
+
+Use an existing, unpublished draft as a quote that publishes after another draft:
+
+```bash
+typefully engagements create 101 812 --offset-seconds 3600 --account parent-account
+typefully engagements list 101 --account parent-account --json
+typefully engagements parent 812 --account quote-account --json
+typefully engagements update 101 "$ENGAGEMENT_ID" --offset-seconds 7200 --account parent-account
+typefully engagements detach 101 "$ENGAGEMENT_ID" --account parent-account
+```
+
+The IDs in `create` are the parent and quote draft. Create can move a quote from another
+parent; if the parent is already published, the quote is scheduled for now plus the delay.
+Update works before the parent publishes. Detach keeps the draft. The parent and quote can
+belong to different accounts when you have the required permissions; Threads quotes stay
+within one account. Update and detach take the API's engagement ID. The documentation's
+list example exposes the quote draft ID as `draft_id` but does not show a separate ID or
+explicitly state whether those IDs differ; this was not tested against a live account.
+See the [public API](https://typefully.com/docs/api) for eligibility.
+
 ## For Agents
 
 Built for humans first, but your AI agent can use it too. Every command supports `--json` for structured output. Pair with `--quiet` to suppress stderr status messages.
@@ -127,12 +148,19 @@ typefully config set output_format json
 |------|---------|
 | `auth_failed` | No API key found in flag, env, config, or 1Password |
 | `no_account` | No account specified or account not found |
-| `api_error` | Non-2xx response from Typefully API |
+| `api_error` | Non-2xx response from Typefully API; HTTP 429 may include `error.rate_limit` |
 | `invalid_input` | Bad date format, limit out of range, incompatible article options |
 | `tag_resolution_failed` | A tag could not be mapped to an authoritative slug; no draft request was sent |
 | `batch_parse_error` | Malformed batch file |
 | `media_upload_error` | Upload failed or unsupported format |
 | `media_processing_timeout` | Upload succeeded but processing did not finish before `--timeout`; poll the media ID in the hint |
+
+The `--media` option accepts up to 20 IDs on one post. Individual
+platforms can impose lower limits or restrict media combinations.
+
+For HTTP 429 errors, `error.rate_limit` can include the documented `user`
+and `social_set` budgets. `reset` is Unix time in seconds. Fields are omitted
+when the headers are absent or unusable; the CLI does not retry the request.
 
 ### Partial failure (batch/delete)
 
